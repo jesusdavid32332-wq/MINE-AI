@@ -1,0 +1,6 @@
+{
+  "name": "MINES AI - Analizador de Partidas Reales WIN10K",
+  "description": "Asistente profesional y analizador estadístico con visión computacional para partidas de Mines de WIN10K.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

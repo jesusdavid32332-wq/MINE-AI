@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+             data.uid is string && data.uid.size() <= 128 && data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 256 &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidGame(data) {
+      return data.keys().hasAll(['gameId', 'userId', 'platform', 'boardSize', 'mineCount', 'gameStatus']) &&
+             data.gameId is string && data.gameId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid &&
+             data.platform is string && data.platform.size() <= 64 &&
+             data.boardSize is number && data.boardSize == 5 &&
+             data.mineCount is number && data.mineCount >= 1 && data.mineCount <= 24 &&
+             data.gameStatus is string && data.gameStatus.size() <= 32;
+    }
+
+    function isValidCellResult(data) {
+      return data.keys().hasAll(['cellId', 'gameId', 'userId', 'position', 'row', 'column', 'result', 'confirmedByUser']) &&
+             data.cellId is string && data.cellId.size() <= 128 &&
+             data.gameId is string && data.gameId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid &&
+             data.position is number && data.position >= 0 && data.position <= 24 &&
+             data.row is number && data.row >= 0 && data.row <= 4 &&
+             data.column is number && data.column >= 0 && data.column <= 4 &&
+             data.result is string && (data.result in ['OCULTA', 'SEGURA', 'MINA', 'COFRE', 'DESCONOCIDA']) &&
+             data.confirmedByUser is bool;
+    }
+
+    function isValidTrainingSample(data) {
+      return data.keys().hasAll(['sampleId', 'userId', 'confirmedClass', 'modelPrediction']) &&
+             data.sampleId is string && data.sampleId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid &&
+             data.confirmedClass is string && data.confirmedClass.size() <= 32 &&
+             data.modelPrediction is string && data.modelPrediction.size() <= 32;
+    }
+
+    function isValidAppSettings(data) {
+      return data.keys().hasAll(['userId', 'recognitionThreshold', 'minimumSamples']) &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid &&
+             data.recognitionThreshold is number &&
+             data.minimumSamples is number;
+    }
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming()) && incoming().uid == existing().uid;
+      allow delete: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+    }
+
+    // GAMES COLLECTION
+    match /games/{gameId} {
+      allow get: if isSignedIn() && isValidId(gameId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(gameId) && isValidGame(incoming());
+      allow update: if isSignedIn() && isValidId(gameId) && resource.data.userId == request.auth.uid && isValidGame(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isValidId(gameId) && resource.data.userId == request.auth.uid;
+    }
+
+    // CELL_RESULTS COLLECTION
+    match /cell_results/{cellId} {
+      allow get: if isSignedIn() && isValidId(cellId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(cellId) && isValidCellResult(incoming());
+      allow update: if isSignedIn() && isValidId(cellId) && resource.data.userId == request.auth.uid && isValidCellResult(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isValidId(cellId) && resource.data.userId == request.auth.uid;
+    }
+
+    // TRAINING_SAMPLES COLLECTION
+    match /training_samples/{sampleId} {
+      allow get: if isSignedIn() && isValidId(sampleId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(sampleId) && isValidTrainingSample(incoming());
+      allow update: if isSignedIn() && isValidId(sampleId) && resource.data.userId == request.auth.uid && isValidTrainingSample(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isValidId(sampleId) && resource.data.userId == request.auth.uid;
+    }
+
+    // APP_SETTINGS COLLECTION
+    match /app_settings/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidAppSettings(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidAppSettings(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+    }
+  }
+}

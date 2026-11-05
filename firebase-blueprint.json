@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Game": {
+      "title": "Game",
+      "description": "Recorded Mines game session from WIN10K",
+      "type": "object",
+      "properties": {
+        "gameId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "platform": { "type": "string", "maxLength": 64 },
+        "gameDate": { "type": "string", "maxLength": 64 },
+        "boardSize": { "type": "number" },
+        "mineCount": { "type": "number" },
+        "gameStatus": { "type": "string", "maxLength": 32 },
+        "screenshotUrl": { "type": "string", "maxLength": 1048576 },
+        "revealedCount": { "type": "number" },
+        "safeCount": { "type": "number" },
+        "mineCountRevealed": { "type": "number" },
+        "chestCount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["gameId", "userId", "platform", "boardSize", "mineCount", "gameStatus"]
+    },
+    "CellResult": {
+      "title": "CellResult",
+      "description": "Individual cell result on the 5x5 Mines grid",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "position": { "type": "number" },
+        "row": { "type": "number" },
+        "column": { "type": "number" },
+        "result": { "type": "string", "maxLength": 32 },
+        "confirmedByUser": { "type": "boolean" },
+        "recognitionConfidence": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["cellId", "gameId", "userId", "position", "row", "column", "result", "confirmedByUser"]
+    },
+    "TrainingSample": {
+      "title": "TrainingSample",
+      "description": "Vision recognition validation and benchmark sample",
+      "type": "object",
+      "properties": {
+        "sampleId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "imageUrl": { "type": "string", "maxLength": 1048576 },
+        "visualFeatures": { "type": "string", "maxLength": 1024 },
+        "confirmedClass": { "type": "string", "maxLength": 32 },
+        "modelPrediction": { "type": "string", "maxLength": 32 },
+        "confidence": { "type": "number" },
+        "isCorrect": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["sampleId", "userId", "confirmedClass", "modelPrediction"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "User specific application settings and vision thresholds",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "recognitionThreshold": { "type": "number" },
+        "minimumSamples": { "type": "number" },
+        "theme": { "type": "string", "maxLength": 32 },
+        "hapticFeedback": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "recognitionThreshold", "minimumSamples"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document isolated per user"
+    },
+    "/games/{gameId}": {
+      "schema": "Game",
+      "description": "Games registered by user"
+    },
+    "/cell_results/{cellId}": {
+      "schema": "CellResult",
+      "description": "25 individual cell results linked to games"
+    },
+    "/training_samples/{sampleId}": {
+      "schema": "TrainingSample",
+      "description": "Validation samples comparing Gemini Vision to user corrections"
+    },
+    "/app_settings/{userId}": {
+      "schema": "AppSettings",
+      "description": "User specific recognition and UI settings"
+    }
+  }
+}
