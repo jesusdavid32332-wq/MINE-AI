@@ -48,3 +48,56 @@
 .animate-scan-line {
   animation: scanLine 2.2s ease-in-out infinite;
 }
+
+@keyframes cellAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.65) translateY(10px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.04) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes greenGlowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.7), inset 0 0 12px rgba(52, 211, 153, 0.35);
+    border-color: rgba(52, 211, 153, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(16, 185, 129, 0.95), inset 0 0 20px rgba(52, 211, 153, 0.55);
+    border-color: rgba(110, 231, 183, 1);
+  }
+}
+
+@keyframes scanSuccessFlare {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(-12px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.01) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-cell-appear {
+  animation: cellAppear 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-green-glow {
+  animation: greenGlowPulse 2s ease-in-out infinite;
+}
+
+.animate-scan-success {
+  animation: scanSuccessFlare 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

@@ -7,6 +7,7 @@ interface UserSelectionBoardProps {
   selections: UserSelectionCell[];
   onSelectionChange: (position: number, newStatus: UserSelectionState) => void;
   highlightPosition?: number | null;
+  recommendedPositions?: number[];
   readOnly?: boolean;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
@@ -16,6 +17,7 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
   selections,
   onSelectionChange,
   highlightPosition = null,
+  recommendedPositions = [],
   readOnly = false,
   size = 'md',
   className = '',
@@ -82,6 +84,9 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
             let surfaceStyle = '';
             let ringStyle = '';
 
+            const isRec = recommendedPositions.includes(cell.position);
+            const recNum = isRec ? recommendedPositions.indexOf(cell.position) + 1 : 0;
+
             if (cell.status === 'CONFIRMED_SAFE') {
               // Verde: confirmada como segura
               surfaceStyle =
@@ -94,6 +99,10 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
               // Amarillo: resultado pendiente de confirmar
               surfaceStyle =
                 'bg-gradient-to-b from-amber-900/80 via-[#78350f]/85 to-[#3b1704] border-amber-400/90 shadow-[inset_0_1px_1px_rgba(254,240,138,0.4),0_0_22px_rgba(245,158,11,0.5)] animate-pulse text-amber-100';
+            } else if (isRec) {
+              // Azul con borde cian para posición recomendada
+              surfaceStyle =
+                'bg-gradient-to-b from-[#162a5c] via-[#0d1d44] to-[#07112c] border-2 border-cyan-400/80 shadow-[0_0_15px_rgba(6,182,212,0.35)] hover:border-cyan-300 hover:from-[#1d3570] text-cyan-100';
             } else {
               // Azul: casilla todavía no seleccionada
               surfaceStyle =
@@ -102,6 +111,8 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
 
             if (isHighlighted) {
               ringStyle = 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950 scale-105 z-10';
+            } else if (isRec && cell.status === 'UNSELECTED') {
+              ringStyle = 'ring-1 ring-cyan-400/80';
             }
 
             return (
@@ -117,13 +128,15 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
                   ${ringStyle}
                   ${!readOnly ? 'cursor-pointer active:scale-95 hover:-translate-y-0.5' : 'cursor-default'}
                 `}
-                title={`Coordenada ${cell.coordinate} - Estado: ${
+                title={`Coordenada ${cell.coordinate} [Fila ${cell.row + 1}, Columna ${cell.column + 1}] - Estado: ${
                   cell.status === 'CONFIRMED_SAFE'
                     ? 'Confirmada Segura (Gema)'
                     : cell.status === 'CONFIRMED_MINE'
                     ? 'Mina Confirmada (Derrota)'
                     : cell.status === 'PENDING'
-                    ? 'Seleccionada en WIN10K (Pendiente de confirmar)'
+                    ? 'Seleccionada en WIN10K (Pendiente)'
+                    : isRec
+                    ? `Sugerencia #${recNum} para WIN10K (Haz clic para registrar resultado)`
                     : 'No seleccionada'
                 }`}
               >
@@ -131,6 +144,13 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
                 <span className="absolute top-1 left-1.5 text-[8px] sm:text-[9px] font-mono font-bold tracking-tight pointer-events-none opacity-80">
                   {cell.coordinate}
                 </span>
+
+                {/* Recommendation badge on Blue Board */}
+                {isRec && cell.status === 'UNSELECTED' && (
+                  <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-cyan-500/90 text-black shadow-sm pointer-events-none">
+                    #{recNum}
+                  </span>
+                )}
 
                 {/* Status Indicator Dot/Badge */}
                 <div className="flex items-center justify-center pointer-events-none">
@@ -149,7 +169,15 @@ export const UserSelectionBoard: React.FC<UserSelectionBoardProps> = ({
                     </div>
                   )}
                   {cell.status === 'UNSELECTED' && (
-                    <TileClosed3D className={`${iconSizes[size]} opacity-40 group-hover:opacity-80`} />
+                    isRec ? (
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-mono font-black text-xs flex items-center justify-center">
+                          {recNum}
+                        </span>
+                      </div>
+                    ) : (
+                      <TileClosed3D className={`${iconSizes[size]} opacity-40 group-hover:opacity-80`} />
+                    )
                   )}
                 </div>
 

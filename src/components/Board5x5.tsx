@@ -19,6 +19,7 @@ interface Board5x5Props {
   boardVariant?: 'green' | 'default';
   heatmapValues?: { [position: number]: number }; // 0.0 to 1.0
   heatmapColor?: 'red' | 'green' | 'blue' | 'gold';
+  hasRecognizedCapture?: boolean;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -39,6 +40,7 @@ export const Board5x5: React.FC<Board5x5Props> = ({
   boardVariant = 'default',
   heatmapValues,
   heatmapColor = 'red',
+  hasRecognizedCapture = false,
   size = 'md',
   className = '',
 }) => {
@@ -195,8 +197,19 @@ export const Board5x5: React.FC<Board5x5Props> = ({
               }
             }
 
-            const isRecommended = recommendedPositions.includes(cell.position) && cell.state === 'OCULTA';
+            const isRecommended = Boolean(
+              hasRecognizedCapture &&
+              recommendedPositions.includes(cell.position) &&
+              cell.state === 'OCULTA'
+            );
+            const recIndex = recommendedPositions.indexOf(cell.position);
+            const recNumber = recIndex >= 0 ? recIndex + 1 : 1;
             const cellRank = cellRanks ? cellRanks[cell.position] : undefined;
+
+            if (isRecommended) {
+              cellSurfaceStyle =
+                'bg-gradient-to-b from-[#0a3820] via-[#052614] to-[#02130a] border-2 border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.7),inset_0_1px_2px_rgba(255,255,255,0.4)]';
+            }
 
             return (
               <button
@@ -215,11 +228,15 @@ export const Board5x5: React.FC<Board5x5Props> = ({
                       : ''
                   }
                   ${isHighlighted ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950 scale-105 z-10' : ''}
-                  ${isRecommended ? 'ring-1 ring-emerald-400/90 shadow-[0_0_14px_rgba(16,185,129,0.35)]' : ''}
+                  ${isRecommended ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950 scale-105 z-20 shadow-[0_0_25px_rgba(16,185,129,0.6)] animate-pulse' : ''}
                   ${!readOnly ? 'cursor-pointer active:scale-95 hover:-translate-y-0.5' : 'cursor-default'}
                 `}
-                title={`Coordenada ${coordinateLabel} [Fila ${cell.row + 1}, Col ${cell.column + 1}] - Estado: ${cell.state}${
-                  cellRank ? ` (Ranking estimado: #${cellRank})` : ''
+                title={`Coordenada ${coordinateLabel} [Fila ${cell.row + 1}, Columna ${cell.column + 1}] - Estado: ${cell.state}${
+                  isRecommended
+                    ? ` (Posición sugerida #${recNumber} para WIN10K · 88.0% prob. uniforme)`
+                    : cellRank && hasRecognizedCapture
+                    ? ` (Ranking estimado: #${cellRank})`
+                    : ''
                 }${
                   cell.state === 'OCULTA' && hiddenSafeProbability !== undefined
                     ? ` | Probabilidad matemática: ${(hiddenSafeProbability * 100).toFixed(1)}% segura`
@@ -247,7 +264,18 @@ export const Board5x5: React.FC<Board5x5Props> = ({
                       <TileUnknown3D className={`${iconSizes[size]} opacity-90`} />
                     )}
                     {cell.state === 'OCULTA' && (
-                      <TileClosed3D className={`${iconSizes[size]} opacity-80 group-hover:opacity-100`} />
+                      isRecommended ? (
+                        <div className="flex flex-col items-center justify-center animate-in zoom-in-75 duration-200">
+                          <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-emerald-400 via-teal-300 to-cyan-300 text-slate-950 font-black text-sm sm:text-base flex items-center justify-center shadow-[0_0_16px_#10b981] ring-2 ring-white">
+                            {recNumber}
+                          </div>
+                          <span className="text-[7px] sm:text-[8px] font-black text-emerald-300 tracking-wider uppercase mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                            SUGERIDA
+                          </span>
+                        </div>
+                      ) : (
+                        <TileClosed3D className={`${iconSizes[size]} opacity-70 group-hover:opacity-100`} />
+                      )
                     )}
                   </div>
                 )}
@@ -266,17 +294,17 @@ export const Board5x5: React.FC<Board5x5Props> = ({
                   </span>
                 )}
 
-                {/* Rank Badge for Estimated Safety Ranking */}
-                {showRankBadges && cellRank && cell.state === 'OCULTA' && (
-                  <span
-                    className={`absolute top-1 right-1.5 text-[8px] font-mono font-bold px-1 py-0.2 rounded pointer-events-none ${
-                      isRecommended
-                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-400'
-                        : 'bg-slate-900/90 text-slate-400 border border-slate-700'
-                    }`}
-                  >
-                    #{cellRank}
+                {/* Recommendation or Rank Badge */}
+                {isRecommended ? (
+                  <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-emerald-400 text-slate-950 shadow-[0_0_8px_#10b981] pointer-events-none">
+                    #{recNumber}
                   </span>
+                ) : (
+                  showRankBadges && hasRecognizedCapture && cellRank && cell.state === 'OCULTA' && (
+                    <span className="absolute top-1 right-1.5 text-[8px] font-mono font-bold px-1 py-0.2 rounded pointer-events-none bg-slate-900/90 text-slate-400 border border-slate-700">
+                      #{cellRank}
+                    </span>
+                  )
                 )}
 
                 {/* AI Vision Confidence Tag */}

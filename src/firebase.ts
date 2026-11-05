@@ -3,8 +3,12 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   type User,
   signInAnonymously
 } from 'firebase/auth';
@@ -15,12 +19,24 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 
 // CRITICAL: Always pass the provisioned firestoreDatabaseId
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+// Configure GoogleAuthProvider with account selector and proper scopes
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
+
+// Enforce browser local persistence for persistent sessions across reloads
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn('Persistencia de autenticación aviso:', err);
+});
 
 export enum OperationType {
   CREATE = 'create',
@@ -89,6 +105,10 @@ export async function testConnection(): Promise<boolean> {
 
 export {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   fbSignOut,
   onAuthStateChanged,
   signInAnonymously,

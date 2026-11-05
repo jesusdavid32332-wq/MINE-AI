@@ -22,8 +22,10 @@ import { HistoryView } from './components/HistoryView';
 import { ValidationView } from './components/ValidationView';
 import { Win10kAuditView } from './components/Win10kAuditView';
 import { SettingsView } from './components/SettingsView';
+import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { UserVipIcon3D, Gem3D } from './components/Icons3D';
 import { soundFX } from './utils/soundEffects';
+import { checkRedirectResult, syncUserProfile, AuthErrorInfo } from './services/authService';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -63,8 +65,22 @@ export default function App() {
     };
   }, []);
 
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [authModalError, setAuthModalError] = useState<AuthErrorInfo | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+
   // Firebase Auth State Tracker with safety timeout to avoid blank screens
   useEffect(() => {
+    // Check for pending redirect result on app boot
+    checkRedirectResult()
+      .then((redirectUser) => {
+        if (redirectUser) {
+          setUser(redirectUser);
+          setAuthNotice(`¡Sesión completada con Google!: ${redirectUser.email}`);
+        }
+      })
+      .catch((err) => console.warn('Redirect check aviso:', err));
+
     const fallbackTimer = setTimeout(() => {
       setAuthLoading(false);
     }, 1000);
@@ -75,6 +91,9 @@ export default function App() {
         clearTimeout(fallbackTimer);
         setUser(currentUser);
         setAuthLoading(false);
+        if (currentUser) {
+          syncUserProfile(currentUser).catch(() => {});
+        }
       },
       (error) => {
         console.warn('Auth observer error (fallback):', error);
@@ -121,35 +140,10 @@ export default function App() {
     };
   }, [user]);
 
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
-
-  const handleLoginClick = async () => {
-    setAuthNotice(null);
-    try {
-      soundFX.playTileClick();
-      await signInWithPopup(auth, googleProvider);
-      soundFX.playGemReveal();
-    } catch (err: unknown) {
-      const fbError = err as { code?: string; message?: string };
-      const code = fbError?.code || '';
-      console.warn('Google Sign In aviso:', code, fbError?.message);
-
-      if (code === 'auth/popup-blocked') {
-        setAuthNotice(
-          'El navegador bloqueó la ventana emergente de autenticación. Por favor, habilita las ventanas emergentes (popups) en la barra del navegador para iniciar sesión con Google.'
-        );
-      } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        setAuthNotice('Ventana de inicio de sesión cerrada. Puedes intentarlo nuevamente cuando desees.');
-      } else if (code === 'auth/unauthorized-domain') {
-        setAuthNotice(
-          'Este dominio de vista previa no está en la lista de dominios autorizados de Firebase Console. Puedes seguir utilizando todas las herramientas como Invitado.'
-        );
-      } else {
-        setAuthNotice(
-          'No se pudo completar el inicio de sesión con Google en este entorno. Puedes continuar en modo Invitado.'
-        );
-      }
-    }
+  const handleLoginClick = () => {
+    soundFX.playTileClick();
+    setAuthModalError(null);
+    setIsAuthModalOpen(true);
   };
 
   // Quick Loading indicator
@@ -243,6 +237,7 @@ export default function App() {
             }}
             initialMinesCount={3}
             games={games}
+            onLoginClick={handleLoginClick}
           />
         )}
 
@@ -274,9 +269,22 @@ export default function App() {
             settings={settings}
             onSettingsUpdated={(newSettings) => setSettings(newSettings)}
             userEmail={user?.email}
+            onLoginClick={handleLoginClick}
           />
         )}
       </main>
+
+      {/* Google Authentication Modal with Live State Feedback */}
+      <GoogleAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={user}
+        onAuthSuccess={(authedUser) => {
+          setUser(authedUser);
+          setAuthNotice(`¡Cuenta conectada con éxito!: ${authedUser.email || authedUser.uid}`);
+        }}
+        initialError={authModalError}
+      />
     </div>
   );
 }

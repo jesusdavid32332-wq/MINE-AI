@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import {
-  auth,
-  googleProvider,
-  signInWithPopup,
-  signInAnonymously
-} from '../firebase';
-import { Sparkles, ShieldCheck, Database, Camera, Brain, Lock, ArrowRight } from 'lucide-react';
+  loginWithGoogle,
+  loginAsGuest,
+  parseAuthError,
+  AuthErrorInfo,
+} from '../services/authService';
+import { Sparkles, Camera, Brain, Database } from 'lucide-react';
+import { soundFX } from '../utils/soundEffects';
 
 interface AuthViewProps {
   onSuccess?: () => void;
@@ -13,24 +14,20 @@ interface AuthViewProps {
 
 export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
   const [loading, setLoading] = useState<boolean>(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authErrorInfo, setAuthErrorInfo] = useState<AuthErrorInfo | null>(null);
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (preferRedirect = false) => {
     setLoading(true);
-    setAuthError(null);
+    setAuthErrorInfo(null);
+    soundFX.playTileClick();
     try {
-      await signInWithPopup(auth, googleProvider);
+      await loginWithGoogle({ preferRedirect });
+      soundFX.playChestFanfare();
       if (onSuccess) onSuccess();
     } catch (err: unknown) {
-      console.warn('Aviso de Google Sign In:', err);
-      const fbError = err as { code?: string; message?: string };
-      if (fbError?.code === 'auth/popup-blocked') {
-        setAuthError('El navegador bloqueó la ventana emergente. Por favor permite popups para continuar.');
-      } else if (fbError?.code === 'auth/popup-closed-by-user') {
-        setAuthError('Ventana cerrada antes de completar el acceso.');
-      } else {
-        setAuthError(err instanceof Error ? err.message : 'Error al iniciar sesión con Google.');
-      }
+      soundFX.playMineDetonation();
+      const parsed = parseAuthError(err);
+      setAuthErrorInfo(parsed);
     } finally {
       setLoading(false);
     }
@@ -38,15 +35,15 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
 
   const handleAnonymousSignIn = async () => {
     setLoading(true);
-    setAuthError(null);
+    setAuthErrorInfo(null);
+    soundFX.playTileClick();
     try {
-      await signInAnonymously(auth);
+      await loginAsGuest();
+      soundFX.playGemReveal();
       if (onSuccess) onSuccess();
     } catch (err: unknown) {
-      console.warn('Aviso de inicio anónimo:', err);
-      setAuthError(
-        err instanceof Error ? err.message : 'Error al iniciar sesión de invitado.'
-      );
+      const parsed = parseAuthError(err);
+      setAuthErrorInfo(parsed);
     } finally {
       setLoading(false);
     }
@@ -93,10 +90,39 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
           </div>
         </div>
 
-        {/* Error message if any */}
-        {authError && (
-          <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs">
-            {authError}
+        {/* Error message with actionable diagnostics if any */}
+        {authErrorInfo && (
+          <div className="p-3.5 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs space-y-2">
+            <div className="font-bold flex items-center gap-1.5 text-white">
+              <span>⚠️</span>
+              <span>{authErrorInfo.title}</span>
+            </div>
+            <p className="leading-relaxed text-[11px] text-slate-300">{authErrorInfo.message}</p>
+            {authErrorInfo.isDomainError && (
+              <div className="pt-1.5 border-t border-red-900/60 text-[10px] space-y-1">
+                <span className="text-slate-400 block">Dominio a autorizar:</span>
+                <code className="text-cyan-300 font-mono block bg-black/40 p-1 rounded">
+                  {authErrorInfo.currentDomain}
+                </code>
+                <a
+                  href={authErrorInfo.consoleSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-1 text-cyan-400 hover:text-cyan-300 underline font-bold"
+                >
+                  Abrir Firebase Console ↗
+                </a>
+              </div>
+            )}
+            {authErrorInfo.code === 'auth/popup-blocked' && (
+              <button
+                type="button"
+                onClick={() => handleGoogleSignIn(true)}
+                className="w-full py-1.5 px-2 rounded-lg bg-amber-600 text-black font-bold text-[11px] mt-1"
+              >
+                Probar Inicio con Redirección
+              </button>
+            )}
           </div>
         )}
 
@@ -105,7 +131,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
           <button
             type="button"
             disabled={loading}
-            onClick={handleGoogleSignIn}
+            onClick={() => handleGoogleSignIn(false)}
             className="w-full py-3.5 px-4 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white shadow-xl shadow-blue-600/30 transition disabled:opacity-50 flex items-center justify-center gap-3"
           >
             {loading ? (

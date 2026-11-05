@@ -16,12 +16,14 @@ interface SettingsViewProps {
   settings: AppSettings | null;
   onSettingsUpdated: (newSettings: AppSettings) => void;
   userEmail?: string | null;
+  onLoginClick?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   onSettingsUpdated,
   userEmail,
+  onLoginClick,
 }) => {
   const [threshold, setThreshold] = useState<number>(settings?.recognitionThreshold ?? 0.7);
   const [minSamples, setMinSamples] = useState<number>(settings?.minimumSamples ?? 20);
@@ -98,6 +100,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleLogin = async () => {
     setAuthFeedback(null);
+    if (onLoginClick) {
+      onLoginClick();
+      return;
+    }
     try {
       await signInWithPopup(auth, googleProvider);
       soundFX.playGemReveal();
@@ -109,7 +115,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       } else if (fbError?.code === 'auth/popup-closed-by-user') {
         setAuthFeedback('Ventana cerrada antes de completar el inicio de sesión.');
       } else if (fbError?.code === 'auth/unauthorized-domain') {
-        setAuthFeedback('Dominio no autorizado en Firebase Console. Puedes continuar como Invitado.');
+        setAuthFeedback('Dominio no autorizado en Firebase Console. Pulsa "Conectar" para ver los pasos de autorización.');
       } else {
         setAuthFeedback('No se pudo conectar con Google en este entorno.');
       }

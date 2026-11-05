@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Board5x5 } from './Board5x5';
 import { UserSelectionBoard } from './UserSelectionBoard';
+import { ScanResultsOverlay } from './ScanResultsOverlay';
 import { CellData, CellState, GameRecord, UserSelectionCell, UserSelectionState } from '../types';
 import { saveGameRecord, recordTrainingSample } from '../services/firestoreService';
 import { auth } from '../firebase';
@@ -32,17 +33,22 @@ interface AnalyzerViewProps {
   onGameSaved?: (gameId: string) => void;
   initialMinesCount?: number;
   games?: GameRecord[];
+  onLoginClick?: () => void;
 }
 
 export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
   onGameSaved,
   games = [],
+  onLoginClick,
 }) => {
   // Mode 1: Nueva Partida | Mode 2: Actualizar Partida
   const [analysisMode, setAnalysisMode] = useState<'MODE_1_NEW' | 'MODE_2_UPDATE'>('MODE_1_NEW');
 
   // Board View: 'BOTH' (side by side) | 'GREEN' (Analysis only) | 'BLUE' (Selections only)
   const [boardViewMode, setBoardViewMode] = useState<'BOTH' | 'GREEN' | 'BLUE'>('BOTH');
+
+  // Fullscreen Floating Results Screen (Pantalla Flotante Automática)
+  const [showResultsOverlay, setShowResultsOverlay] = useState<boolean>(false);
 
   // Currently inspected cell position (0 to 24)
   const [inspectedPosition, setInspectedPosition] = useState<number | null>(null);
@@ -125,8 +131,14 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     }
   }, [strategyState.isGameLost, strategyState.isGameWon]);
 
-  // Cell ranks map for Green Board
+  // Track whether an authentic initial screenshot has been recognized
+  const [hasRecognizedCapture, setHasRecognizedCapture] = useState<boolean>(false);
+  // Preserved 3 recommended positions from initial scan
+  const [initialRecommendedPositions, setInitialRecommendedPositions] = useState<number[]>([]);
+
+  // Cell ranks map for Green Board (only active when capture is recognized)
   const cellRanksMap = useMemo(() => {
+    if (!hasRecognizedCapture) return {};
     const map: { [pos: number]: number } = {};
     for (const r of strategyState.rankedCells) {
       if (r.rank > 0) {
@@ -134,13 +146,57 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
       }
     }
     return map;
-  }, [strategyState.rankedCells]);
+  }, [hasRecognizedCapture, strategyState.rankedCells]);
 
   const recommendedPositions = useMemo(() => {
+    if (!hasRecognizedCapture) return [];
+    if (initialRecommendedPositions.length === 3) {
+      return initialRecommendedPositions;
+    }
     return strategyState.rankedCells
       .filter((r) => r.isRecommended)
+      .slice(0, 3)
       .map((r) => r.position);
-  }, [strategyState.rankedCells]);
+  }, [hasRecognizedCapture, initialRecommendedPositions, strategyState.rankedCells]);
+
+  // Detailed breakdown of the 3 recommended positions for WIN10K
+  const top3RecommendedDetails = useMemo(() => {
+    if (!hasRecognizedCapture || recommendedPositions.length === 0) return [];
+
+    const rowDescriptions = [
+      'Fila 1 (superior / arriba del todo)',
+      'Fila 2 (segunda fila)',
+      'Fila 3 (fila central)',
+      'Fila 4 (cuarta fila)',
+      'Fila 5 (inferior / abajo del todo)',
+    ];
+    const colDescriptions = [
+      'Columna 1 (izquierda del todo)',
+      'Columna 2 (segunda columna)',
+      'Columna 3 (columna central)',
+      'Columna 4 (cuarta columna)',
+      'Columna 5 (derecha del todo)',
+    ];
+
+    return recommendedPositions.map((pos, idx) => {
+      const row = Math.floor(pos / 5);
+      const col = pos % 5;
+      const cellData = cells.find((c) => c.position === pos);
+      const userSel = userSelections.find((s) => s.position === pos);
+
+      return {
+        number: idx + 1,
+        position: pos,
+        coordinate: `F${row + 1}-C${col + 1}`,
+        row: row + 1,
+        column: col + 1,
+        rowDescription: rowDescriptions[row] || `Fila ${row + 1}`,
+        colDescription: colDescriptions[col] || `Columna ${col + 1}`,
+        state: cellData?.state || 'OCULTA',
+        userStatus: userSel?.status || 'UNSELECTED',
+      };
+    });
+  }, [hasRecognizedCapture, recommendedPositions, cells, userSelections]);
 
   const safeCount = cells.filter((c) => c.state === 'SEGURA').length;
   const mineCountRevealed = cells.filter((c) => c.state === 'MINA').length;
@@ -183,6 +239,22 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+  };
+
+  // Quick 1-click test loader for real authentic WIN10K initial screenshot
+  const handleLoadSampleInitialCapture = async () => {
+    soundFX.playTileClick();
+    setAnalysisError(null);
+    setMismatchWarning(null);
+    setSaveSuccess(false);
+    try {
+      const res = await fetch('/samples/win10k_sample_initial.png');
+      const blob = await res.blob();
+      const file = new File([blob], 'captura_inicial_win10k.png', { type: 'image/png' });
+      processSelectedImage(file);
+    } catch (err) {
+      console.warn('Aviso cargando muestra inicial:', err);
+    }
   };
 
   // Run Gemini Vision Analysis with real progress simulation
@@ -276,7 +348,6 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
       if (analysisMode === 'MODE_1_NEW') {
         const initialMerged: CellData[] = incomingCells.map((c) => ({
           ...c,
-          // If fresh start, cells are OCULTA unless user uploaded a game in progress
         }));
 
         setCells(initialMerged);
@@ -301,6 +372,20 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
         const totalSafeNow = initialMerged.filter((c) => c.state === 'SEGURA').length;
         const hasMineNow = initialMerged.some((c) => c.state === 'MINA');
 
+        // Calculate recommendations for Mode 1
+        const initialStrat = calculateWin10kFixedStrategy(initialMerged, empiricalStats.positions);
+        const top3Recs = initialStrat.rankedCells
+          .filter((r) => r.state === 'OCULTA')
+          .slice(0, 3)
+          .map((r) => r.position);
+
+        setInitialRecommendedPositions(top3Recs);
+        setHasRecognizedCapture(true);
+        // COMPORTAMIENTO OBLIGATORIO 1: Mostrar automáticamente los dos tableros completos de 5x5
+        setBoardViewMode('BOTH');
+        // PANTALLA FLOTANTE AUTOMÁTICA AL FINALIZAR EL ESCANEO
+        setShowResultsOverlay(true);
+
         if (hasMineNow) {
           setGameStatus('lost');
           soundFX.playMineDetonation();
@@ -309,14 +394,11 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
           soundFX.playChestFanfare();
         } else {
           setGameStatus('ongoing');
-          soundFX.playTileClick();
+          soundFX.playGemReveal();
         }
 
         setRecentChangesSummary(
-          `Nueva partida iniciada: Tablero 5×5 reconocido con 3 minas configuradas. Progreso inicial: ${Math.min(
-            3,
-            totalSafeNow
-          )}/3 casillas seguras.`
+          `Tablero 5×5 inicial reconocido con éxito (3 minas configuradas). Sección "MIS 3 SELECCIONES" generada con las coordenadas recomendadas.`
         );
 
         const newStep: RoundStep = {
@@ -328,7 +410,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
         };
         setRoundHistory([newStep]);
 
-        // Auto transition to Mode 2 for following captures
+        // Auto transition to Mode 2 for subsequent updates
         setAnalysisMode('MODE_2_UPDATE');
       } else {
         // MODE 2: ACTUALIZAR PARTIDA EN CURSO
@@ -416,6 +498,17 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
         }
 
         setCells(mergedCells);
+
+        // Recalcular recomendaciones dinámicamente sobre las casillas ocultas restantes
+        const updatedStrat = calculateWin10kFixedStrategy(mergedCells, empiricalStats.positions);
+        const updatedTop3 = updatedStrat.rankedCells
+          .filter((r) => r.state === 'OCULTA')
+          .slice(0, 3)
+          .map((r) => r.position);
+        setInitialRecommendedPositions(updatedTop3);
+
+        // PANTALLA FLOTANTE AUTOMÁTICA AL FINALIZAR EL ESCANEO EN MODO 2
+        setShowResultsOverlay(true);
 
         const currentRevealed = mergedCells.filter((c) => c.state !== 'OCULTA').length;
         const newStep: RoundStep = {
@@ -509,6 +602,9 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     setInspectedPosition(null);
     setAnalysisMode('MODE_1_NEW');
     setGameStatus('ongoing');
+    setHasRecognizedCapture(false);
+    setInitialRecommendedPositions([]);
+    setShowResultsOverlay(false);
 
     setCells(
       Array.from({ length: 25 }, (_, i) => ({
@@ -550,8 +646,11 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
+        if (onLoginClick) {
+          onLoginClick();
+        }
         setAnalysisError(
-          'Para respaldar partidas en Cloud Firestore, pulsa "Conectar Google Auth" en la barra superior. En modo demostración/invitado puedes seguir analizando capturas sin restricciones.'
+          'Para respaldar partidas en Cloud Firestore, conecta tu cuenta de Google. Pulsa "Conectar Google Auth" para abrir el selector oficial.'
         );
         setIsSaving(false);
         return;
@@ -652,6 +751,32 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-end lg:self-center shrink-0">
+            {hasRecognizedCapture && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResultsOverlay(true);
+                    soundFX.playScanSweep();
+                  }}
+                  className="px-3.5 py-2 text-xs font-black rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)] transition active:scale-95 flex items-center gap-1.5 border border-cyan-400/60"
+                  title="Abrir pantalla flotante de resultados a pantalla completa"
+                >
+                  <ScannerIcon3D className="w-4 h-4" />
+                  <span>🚀 Pantalla Flotante</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    document.getElementById('mis-3-selecciones')?.scrollIntoView({ behavior: 'smooth' });
+                    soundFX.playTileClick();
+                  }}
+                  className="px-3.5 py-2 text-xs font-black rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] transition active:scale-95 flex items-center gap-1.5 border border-emerald-400/60"
+                >
+                  <span>🎯 MIS 3 SELECCIONES</span>
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleResetNewGame}
@@ -872,6 +997,27 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
           )}
         </div>
 
+        {/* Sample Image Quick Test Helper for Testing Real Initial Flow */}
+        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-[#081224] border border-cyan-500/30 text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <span className="text-cyan-400 font-bold">💡 Prueba en 1 clic:</span>
+            <span className="text-[11px] text-slate-300">
+              Carga una captura inicial auténtica de WIN10K (25 casillas cerradas) para verificar el flujo de Modo 1.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleLoadSampleInitialCapture();
+            }}
+            className="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r from-cyan-900 to-blue-900 hover:from-cyan-800 hover:to-blue-800 border border-cyan-400/50 text-cyan-200 transition flex items-center gap-1.5 active:scale-95 shadow-md"
+          >
+            <ScannerIcon3D className="w-3.5 h-3.5" />
+            <span>Cargar Captura de Prueba WIN10K (Modo 1)</span>
+          </button>
+        </div>
+
         {/* Scan Button Trigger */}
         {imagePreview && (
           <button
@@ -967,6 +1113,200 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
           >
             Nueva Partida
           </button>
+        </div>
+      )}
+
+      {/* =============================================================== */}
+      {/* SECCIÓN OBLIGATORIA: MIS 3 SELECCIONES (LISTAS PARA WIN10K)     */}
+      {/* =============================================================== */}
+      {hasRecognizedCapture && top3RecommendedDetails.length > 0 ? (
+        <div id="mis-3-selecciones" className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#071328] via-[#091b36] to-[#0c142c] border-2 border-emerald-400 p-5 sm:p-6 shadow-[0_15px_45px_rgba(16,185,129,0.25)] space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-slate-950 font-black text-lg flex items-center justify-center shadow-[0_0_18px_#10b981] shrink-0">
+                3
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-black text-white tracking-wide">
+                    MIS 3 SELECCIONES
+                  </h2>
+                  <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-emerald-950 border border-emerald-400 text-emerald-300">
+                    LISTAS PARA CONSULTAR EN WIN10K
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Consulta estas 3 posiciones manualmente en tu pantalla de WIN10K. Registra los resultados reales aquí para actualizar tu progreso.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/80 px-3 py-1 rounded-xl border border-cyan-500/40">
+                Objetivo Fijo: 3 Casillas Seguras
+              </span>
+            </div>
+          </div>
+
+          {/* 3 Detailed Cards for the 3 Recommendations */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {top3RecommendedDetails.map((rec) => {
+              const isInspected = inspectedPosition === rec.position;
+              return (
+                <div
+                  key={rec.position}
+                  onClick={() => setInspectedPosition(rec.position)}
+                  className={`relative rounded-2xl p-4 transition-all border flex flex-col justify-between cursor-pointer ${
+                    isInspected
+                      ? 'bg-[#0c2419] border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)] ring-1 ring-emerald-400'
+                      : 'bg-[#091526]/90 border-slate-700/80 hover:border-emerald-500/70 hover:bg-[#0c1a2e]'
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-full bg-emerald-500 text-slate-950 font-black text-sm flex items-center justify-center shadow-[0_0_10px_#10b981]">
+                          {rec.number}
+                        </span>
+                        <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider font-mono">
+                          Opción #{rec.number}
+                        </span>
+                      </div>
+
+                      {/* Status Badge in WIN10K */}
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md">
+                        {rec.userStatus === 'CONFIRMED_SAFE' && (
+                          <span className="bg-emerald-950 border border-emerald-400 text-emerald-300 px-1.5 py-0.5 rounded">
+                            💎 Confirmada Segura
+                          </span>
+                        )}
+                        {rec.userStatus === 'CONFIRMED_MINE' && (
+                          <span className="bg-red-950 border border-red-500 text-red-300 px-1.5 py-0.5 rounded">
+                            💣 Mina Confirmada
+                          </span>
+                        )}
+                        {rec.userStatus === 'PENDING' && (
+                          <span className="bg-amber-950 border border-amber-400 text-amber-300 px-1.5 py-0.5 rounded animate-pulse">
+                            ⏳ Pendiente en WIN10K
+                          </span>
+                        )}
+                        {rec.userStatus === 'UNSELECTED' && (
+                          <span className="bg-blue-950 border border-blue-400 text-blue-300 px-1.5 py-0.5 rounded">
+                            Por consultar
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Coordinates & Row/Column Breakdown */}
+                    <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs font-mono font-bold text-slate-400">Coordenada:</span>
+                        <span className="text-xl font-black text-white font-mono text-cyan-300">
+                          {rec.coordinate}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-200 mt-1 font-semibold flex items-center justify-between border-t border-slate-800/80 pt-1.5">
+                        <span>Fila {rec.row}</span>
+                        <span>Columna {rec.column}</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-400 font-medium mt-1">
+                        📍 {rec.rowDescription} · {rec.colDescription}
+                      </p>
+                    </div>
+
+                    {/* Uniform Probability statement */}
+                    <div className="text-[11px] text-slate-300 space-y-0.5">
+                      <span className="text-slate-400 text-[10px] block">Probabilidad Matemática:</span>
+                      <span className="font-mono font-bold text-emerald-300">88.0% segura</span>
+                      <span className="text-[10px] text-slate-400 block">
+                        (Idéntica a todas las casillas ocultas: 22/25)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick-action result registration buttons */}
+                  <div className="mt-4 pt-3 border-t border-slate-800 space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Registrar resultado en WIN10K:
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUserSelectionChange(rec.position, 'PENDING');
+                        }}
+                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
+                          rec.userStatus === 'PENDING'
+                            ? 'bg-amber-500 text-black border-amber-300'
+                            : 'bg-amber-950/60 hover:bg-amber-900/80 border-amber-500/40 text-amber-200'
+                        }`}
+                        title="Marcar como seleccionada pendiente de confirmar"
+                      >
+                        ⏳ Pendiente
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUserSelectionChange(rec.position, 'CONFIRMED_SAFE');
+                        }}
+                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
+                          rec.userStatus === 'CONFIRMED_SAFE'
+                            ? 'bg-emerald-500 text-black border-emerald-300'
+                            : 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-500/40 text-emerald-200'
+                        }`}
+                        title="Marcar como gema confirmada (+1 acierto)"
+                      >
+                        💎 Segura
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUserSelectionChange(rec.position, 'CONFIRMED_MINE');
+                        }}
+                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
+                          rec.userStatus === 'CONFIRMED_MINE'
+                            ? 'bg-red-500 text-black border-red-300'
+                            : 'bg-red-950/60 hover:bg-red-900/80 border-red-500/40 text-red-200'
+                        }`}
+                        title="Marcar como mina detonada"
+                      >
+                        💣 Mina
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Mathematical Transparency & Disclaimer (Requirements 9 & 10) */}
+          <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 leading-relaxed space-y-1">
+            <p>
+              <strong>Transparencia Matemática WIN10K (Regla de Oro):</strong> En una partida con 3 minas y 25 casillas ocultas, todas las 25 casillas comparten con exactitud la misma probabilidad teórica: <strong>88.0% segura (22/25)</strong> y <strong>12.0% mina (3/25)</strong>. MINES AI no inventa probabilidades distintas entre casillas ocultas; las tres opciones recomendadas representan un orden estructurado de exploración basado en distribución histórica y balance espacial.
+            </p>
+            <p className="text-slate-400 text-[10px]">
+              <strong>Aviso de Responsabilidad:</strong> MINES AI no afirma que estas tres posiciones sean ganadoras ni garantiza que estén libres de minas. El juego WIN10K opera con un sistema criptográfico aleatorio Provably Fair (HMAC-SHA256). Juega con moderación.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="p-5 rounded-3xl bg-[#091326]/90 border border-cyan-500/30 text-center space-y-2.5 shadow-xl">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950 border border-cyan-500/40 text-cyan-300 text-xs font-bold font-mono">
+            <ScannerIcon3D className="w-4 h-4 text-cyan-400" />
+            <span>Paso 1: Carga y Reconocimiento Inicial Requerido</span>
+          </div>
+          <h3 className="text-sm sm:text-base font-bold text-white">
+            Tableros en espera de la captura inicial de WIN10K
+          </h3>
+          <p className="text-xs text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            Sube tu captura de pantalla de WIN10K (con las 25 casillas ocultas y 3 minas) o presiona <strong>"Cargar Captura de Prueba WIN10K"</strong> arriba y haz clic en <strong>"Escanear Tablero Inicial (Modo 1)"</strong>. Al ser reconocida, se desplegará automáticamente la sección <strong>"MIS 3 SELECCIONES"</strong> con las coordenadas exactas de las 3 posiciones sugeridas y se activarán ambos tableros interactivos.
+          </p>
         </div>
       )}
 
@@ -1067,8 +1407,59 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
               boardVariant="green"
               hiddenSafeProbability={strategyState.nextSafeProbability}
               highlightPosition={inspectedPosition}
+              hasRecognizedCapture={hasRecognizedCapture}
               size="lg"
             />
+
+            {/* Exact Coordinates for Top 3 Recommended Positions (Requirement 3) */}
+            {hasRecognizedCapture && top3RecommendedDetails.length > 0 && (
+              <div className="w-full mt-4 p-4 rounded-2xl bg-emerald-950/70 border border-emerald-400/60 shadow-lg space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                    <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider">
+                      Coordenadas Exactas de las 3 Posiciones Sugeridas:
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-900/80 px-2.5 py-0.5 rounded-md border border-emerald-500/50">
+                    88.0% Prob. Segura
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  {top3RecommendedDetails.map((rec) => (
+                    <div
+                      key={rec.position}
+                      onClick={() => setInspectedPosition(rec.position)}
+                      className={`p-2.5 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
+                        inspectedPosition === rec.position
+                          ? 'bg-[#0f2c1b] border-emerald-400 shadow-[0_0_12px_#10b981]'
+                          : 'bg-[#06180f] border-emerald-500/40 hover:border-emerald-400'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm flex items-center justify-center shrink-0 shadow-[0_0_10px_#10b981]">
+                        {rec.number}
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-emerald-400 block">
+                          Posición #{rec.number}
+                        </span>
+                        <span className="text-sm font-black text-white font-mono">
+                          {rec.coordinate}
+                        </span>
+                        <p className="text-[10px] text-slate-300 font-sans">
+                          <strong>Fila {rec.row}</strong> · <strong>Columna {rec.column}</strong>
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-slate-300 pt-1 leading-relaxed">
+                  <strong>Guía de cuadrícula WIN10K:</strong> Fila 1 = Fila superior (arriba), Fila 5 = Fila inferior (abajo). Columna 1 = Columna izquierda, Columna 5 = Columna derecha.
+                </p>
+              </div>
+            )}
 
             {/* Mathematical Transparency Clarification */}
             <div className="w-full mt-4 p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 text-xs leading-relaxed space-y-1">
@@ -1117,6 +1508,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
               selections={userSelections}
               onSelectionChange={handleUserSelectionChange}
               highlightPosition={inspectedPosition}
+              recommendedPositions={recommendedPositions}
               size="lg"
             />
 
@@ -1304,6 +1696,44 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
           <span className="leading-relaxed">{storageNotice}</span>
         </div>
       )}
+
+      {/* PANTALLA FLOTANTE DE RESULTADOS A PANTALLA COMPLETA */}
+      <ScanResultsOverlay
+        isOpen={showResultsOverlay}
+        onClose={() => setShowResultsOverlay(false)}
+        cells={cells}
+        userSelections={userSelections}
+        recommendedPositions={recommendedPositions}
+        onUserSelectionChange={handleUserSelectionChange}
+        analysisMode={analysisMode}
+        gameStatus={gameStatus}
+        safeCount={safeCount}
+        mineCountRevealed={mineCountRevealed}
+        nextSafeProbability={strategyState.nextSafeProbability}
+        estimatedMultiplier={strategyState.estimatedMultiplier}
+        onViewFullBoards={() => {
+          setShowResultsOverlay(false);
+          setBoardViewMode('BOTH');
+          setTimeout(() => {
+            document.getElementById('mis-3-selecciones')?.scrollIntoView({ behavior: 'smooth' });
+          }, 150);
+        }}
+        onUpdateCapture={() => {
+          setShowResultsOverlay(false);
+          setAnalysisMode('MODE_2_UPDATE');
+          setTimeout(() => {
+            fileInputRef.current?.click();
+          }, 150);
+        }}
+        onNewGame={() => {
+          setShowResultsOverlay(false);
+          handleResetNewGame();
+        }}
+        qualityAssessment={qualityAssessment}
+        qualityNotes={qualityNotes}
+        overallConfidence={overallConfidence}
+        newlyRevealedPositions={newlyRevealedPositions}
+      />
     </div>
   );
 };
