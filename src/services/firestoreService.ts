@@ -14,38 +14,15 @@ import {
 import {
   db,
   auth,
-  storage,
-  ref,
-  uploadString,
-  getDownloadURL,
   handleFirestoreError,
   OperationType
 } from '../firebase';
 import { GameRecord, CellData, TrainingSample, AppSettings } from '../types';
 
 /**
- * Uploads screenshot to Firebase Storage with graceful fallback.
- */
-export async function uploadScreenshotToStorage(
-  userId: string,
-  gameId: string,
-  base64DataUrl: string
-): Promise<string> {
-  if (!base64DataUrl || !base64DataUrl.startsWith('data:')) {
-    return base64DataUrl || '';
-  }
-  try {
-    const storageRef = ref(storage, `screenshots/${userId}/${gameId}.jpg`);
-    await uploadString(storageRef, base64DataUrl, 'data_url');
-    return await getDownloadURL(storageRef);
-  } catch (error) {
-    console.warn('Firebase Storage notice (using embedded preview):', error);
-    return base64DataUrl.substring(0, 100000);
-  }
-}
-
-/**
  * Saves a complete game record and its 25 cell results atomically using a writeBatch.
+ * Strictly operates in zero-cost mode: never stores raw base64 images in Firestore.
+ * Prevents duplicate game registrations.
  */
 export async function saveGameRecord(
   game: Omit<GameRecord, 'userId' | 'createdAt'> & { gameId?: string },
@@ -55,6 +32,17 @@ export async function saveGameRecord(
   if (!user) throw new Error('Usuario no autenticado.');
 
   const gameId = game.gameId || `game_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+  // Duplicate guard: check if game with this ID already exists
+  try {
+    const existingDoc = await getDoc(doc(db, 'games', gameId));
+    if (existingDoc.exists()) {
+      return gameId; // Already saved, prevent duplicate
+    }
+  } catch (err) {
+    // If offline or permission check, proceed to batch
+  }
+
   const now = new Date().toISOString();
 
   const fullGame: GameRecord = {

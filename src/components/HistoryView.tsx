@@ -343,12 +343,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
                 )}
               </div>
 
-              {/* Original Screenshot Preview if saved */}
-              {selectedGame.screenshotUrl && (
+              {/* Original Screenshot Preview if saved in Storage */}
+              {selectedGame.screenshotUrl ? (
                 <div className="pt-3 border-t border-slate-800">
                   <span className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
                     <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
-                    Captura Original Almacenada
+                    Captura Archivada en Firebase Storage
                   </span>
                   <div className="max-h-48 overflow-hidden rounded-xl border border-slate-800 bg-black/40">
                     <img
@@ -357,6 +357,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
                       className="w-full h-full object-contain mx-auto"
                     />
                   </div>
+                </div>
+              ) : (
+                <div className="pt-3 border-t border-slate-800 text-[11px] text-slate-400 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-300 font-medium block mb-0.5">Modo sin costos de almacenamiento:</span>
+                  La captura fue analizada temporalmente en memoria por Gemini Vision. Todos los metadatos de la ronda y las 25 casillas verificadas están respaldadas permanentemente en Cloud Firestore.
                 </div>
               )}
             </div>

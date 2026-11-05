@@ -43,6 +43,7 @@ export interface BoardAnalysisResult {
   chest_count: number;
   hidden_count: number;
   cells: CellDetection[];
+  model_used?: string;
 }
 
 export async function analyzeMinesScreenshot(
@@ -72,84 +73,113 @@ OBJETIVO CRÍTICO:
 REGLA DE ORO DE SEGURIDAD:
 NO inventes resultados. No digas que una casilla oculta es segura o mina si no está revelada. Sé 100% fiel a lo que se ve en la imagen.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
-    contents: [
-      {
-        parts: [
+  let response: any = null;
+  let lastError: any = null;
+  let usedModel = 'gemini-3.1-flash-lite';
+  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+
+  for (const modelName of modelsToTry) {
+    try {
+      usedModel = modelName;
+      response = await ai.models.generateContent({
+        model: modelName,
+        contents: [
           {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: mimeType || 'image/png',
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-      },
-    ],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          quality_assessment: {
-            type: Type.STRING,
-            description: 'CLEAR, BLURRY, CROPPED, o NOT_MINES_GAME',
-          },
-          quality_notes: {
-            type: Type.STRING,
-            description: 'Explicación del estado de la imagen y posibles anomalías',
-          },
-          overall_confidence: {
-            type: Type.NUMBER,
-            description: 'Confianza global entre 0.0 y 1.0',
-          },
-          detected_mine_count: {
-            type: Type.INTEGER,
-            description: 'Número de minas detectado en la interfaz, o null si no se aprecia',
-          },
-          detected_game_status: {
-            type: Type.STRING,
-            description: 'ongoing, win, lost, o unknown',
-          },
-          cells: {
-            type: Type.ARRAY,
-            description: 'Lista exacta de las 25 casillas de la cuadrícula 5x5',
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                position: { type: Type.INTEGER, description: 'Posición 0 a 24' },
-                row: { type: Type.INTEGER, description: 'Fila 0 a 4' },
-                column: { type: Type.INTEGER, description: 'Columna 0 a 4' },
-                state: {
-                  type: Type.STRING,
-                  description: 'OCULTA, SEGURA, MINA, COFRE, o DESCONOCIDA',
-                },
-                confidence: {
-                  type: Type.NUMBER,
-                  description: 'Confianza de la clasificación 0.0 a 1.0',
-                },
-                visual_description: {
-                  type: Type.STRING,
-                  description: 'Breve descripción de lo observado en la casilla',
+            parts: [
+              {
+                inlineData: {
+                  data: cleanBase64,
+                  mimeType: mimeType || 'image/png',
                 },
               },
-              required: ['position', 'row', 'column', 'state', 'confidence', 'visual_description'],
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              quality_assessment: {
+                type: Type.STRING,
+                description: 'CLEAR, BLURRY, CROPPED, o NOT_MINES_GAME',
+              },
+              quality_notes: {
+                type: Type.STRING,
+                description: 'Explicación del estado de la imagen y posibles anomalías',
+              },
+              overall_confidence: {
+                type: Type.NUMBER,
+                description: 'Confianza global entre 0.0 y 1.0',
+              },
+              detected_mine_count: {
+                type: Type.INTEGER,
+                description: 'Número de minas detectado en la interfaz, o null si no se aprecia',
+              },
+              detected_game_status: {
+                type: Type.STRING,
+                description: 'ongoing, win, lost, o unknown',
+              },
+              cells: {
+                type: Type.ARRAY,
+                description: 'Lista exacta de las 25 casillas de la cuadrícula 5x5',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    position: { type: Type.INTEGER, description: 'Posición 0 a 24' },
+                    row: { type: Type.INTEGER, description: 'Fila 0 a 4' },
+                    column: { type: Type.INTEGER, description: 'Columna 0 a 4' },
+                    state: {
+                      type: Type.STRING,
+                      description: 'OCULTA, SEGURA, MINA, COFRE, o DESCONOCIDA',
+                    },
+                    confidence: {
+                      type: Type.NUMBER,
+                      description: 'Confianza de la clasificación 0.0 a 1.0',
+                    },
+                    visual_description: {
+                      type: Type.STRING,
+                      description: 'Breve descripción de lo observado en la casilla',
+                    },
+                  },
+                  required: ['position', 'row', 'column', 'state', 'confidence', 'visual_description'],
+                },
+              },
             },
+            required: [
+              'quality_assessment',
+              'quality_notes',
+              'overall_confidence',
+              'detected_game_status',
+              'cells',
+            ],
           },
         },
-        required: [
-          'quality_assessment',
-          'quality_notes',
-          'overall_confidence',
-          'detected_game_status',
-          'cells',
-        ],
-      },
-    },
-  });
+      });
+      if (response) break;
+    } catch (err: any) {
+      lastError = err;
+      const msg = err?.message || String(err);
+      console.warn(`[MINES AI] Modelo ${modelName} no disponible: ${msg.slice(0, 120)}... Conmutando inmediatamente.`);
+      // Continue to next model without delay on 503/capacity limits
+      continue;
+    }
+  }
+
+  if (!response && lastError) {
+    let cleanMessage = lastError.message || 'Error en el servicio de análisis de Gemini';
+    try {
+      const match = cleanMessage.match(/\{"error":\{.*\}\}/);
+      if (match) {
+        const parsedErr = JSON.parse(match[0]);
+        cleanMessage = parsedErr.error?.message || cleanMessage;
+      }
+    } catch {}
+    throw new Error(cleanMessage);
+  }
 
   const rawJson = response.text?.trim() || '{}';
   const parsed = JSON.parse(rawJson);
@@ -218,5 +248,6 @@ NO inventes resultados. No digas que una casilla oculta es segura o mina si no e
     chest_count: chestCount,
     hidden_count: hiddenCount,
     cells: normalizedCells,
+    model_used: usedModel,
   };
 }

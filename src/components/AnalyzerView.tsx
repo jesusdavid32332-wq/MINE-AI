@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Board5x5 } from './Board5x5';
 import { CellData, CellState, GameRecord } from '../types';
-import { saveGameRecord, recordTrainingSample, uploadScreenshotToStorage } from '../services/firestoreService';
-import { auth, signInAnonymously, signInWithPopup, googleProvider } from '../firebase';
+import { saveGameRecord, recordTrainingSample } from '../services/firestoreService';
+import { auth, signInWithPopup, googleProvider } from '../firebase';
 import {
   Upload,
   Sparkles,
@@ -36,6 +36,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [storageNotice, setStorageNotice] = useState<string | null>(null);
 
   // Vision detection results
   const [qualityAssessment, setQualityAssessment] = useState<string>('');
@@ -176,17 +177,17 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     try {
       let currentUser = auth.currentUser;
       if (!currentUser) {
-        try {
-          const cred = await signInAnonymously(auth);
-          currentUser = cred.user;
-        } catch {
-          const cred = await signInWithPopup(auth, googleProvider);
-          currentUser = cred.user;
-        }
+        const cred = await signInWithPopup(auth, googleProvider);
+        currentUser = cred.user;
       }
 
       if (!currentUser) {
         throw new Error('Por favor inicia sesión con Google para guardar partidas en tu base de datos.');
+      }
+
+      // Prevent duplicate saving if already saved
+      if (saveSuccess) {
+        return;
       }
 
       const revealedSafe = cells.filter((c) => c.state === 'SEGURA').length;
@@ -199,10 +200,10 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
 
       const gameId = `game_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      let finalScreenshotUrl = '';
-      if (imagePreview) {
-        finalScreenshotUrl = await uploadScreenshotToStorage(currentUser.uid, gameId, imagePreview);
-      }
+      // Zero-cost mode: images processed purely in-memory; no storage buckets or base64 in Firestore
+      setStorageNotice(
+        'Partida y 25 casillas guardadas con éxito en Cloud Firestore. Modo sin costos activo: la imagen se procesó en memoria sin generar cargos de almacenamiento.'
+      );
 
       const gamePayload: Omit<GameRecord, 'userId' | 'createdAt'> = {
         gameId,
@@ -211,7 +212,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
         boardSize: 5,
         mineCount,
         gameStatus: finalStatus,
-        screenshotUrl: finalScreenshotUrl,
+        screenshotUrl: '',
         revealedCount: revealedTotal,
         safeCount: revealedSafe,
         mineCountRevealed: revealedMines,
@@ -260,6 +261,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     setQualityAssessment('');
     setQualityNotes('');
     setSaveSuccess(false);
+    setStorageNotice(null);
     setAnalysisError(null);
     setCells(
       Array.from({ length: 25 }, (_, i) => ({
@@ -551,6 +553,14 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
                   Partida y 25 casillas guardadas con éxito en Firestore.
                 </span>
                 <span className="font-semibold text-emerald-200">Sincronizado</span>
+              </div>
+            )}
+
+            {/* Storage notice banner */}
+            {storageNotice && (
+              <div className="w-full mt-2.5 p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-amber-300 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{storageNotice}</span>
               </div>
             )}
 
