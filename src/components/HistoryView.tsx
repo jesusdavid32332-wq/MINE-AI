@@ -3,18 +3,15 @@ import { Board5x5 } from './Board5x5';
 import { GameRecord, CellData, CellState } from '../types';
 import { deleteGameRecord, updateGameRecord } from '../services/firestoreService';
 import {
-  History,
-  Trash2,
-  Edit3,
-  Eye,
-  Calendar,
-  Filter,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Save,
-  Image as ImageIcon
-} from 'lucide-react';
+  HistoryIcon3D,
+  Gem3D,
+  Mine3D,
+  Chest3D,
+  TileClosed3D,
+  ValidationIcon3D,
+  TrophyGold3D,
+} from './Icons3D';
+import { soundFX } from '../utils/soundEffects';
 
 interface HistoryViewProps {
   games: GameRecord[];
@@ -41,6 +38,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
   });
 
   const handleOpenDetail = (game: GameRecord) => {
+    soundFX.playTileClick();
     setSelectedGame(game);
     setEditingCells(game.cells || []);
     setIsEditing(false);
@@ -48,13 +46,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
   };
 
   const handleDelete = async (gameId: string) => {
-    if (!window.confirm('¿Seguro que deseas eliminar esta partida? Esta acción no se puede deshacer y actualizará las estadísticas en tiempo real.')) {
+    if (
+      !window.confirm(
+        '¿Deseas eliminar permanentemente esta partida de tu base de datos Firestore?'
+      )
+    ) {
       return;
     }
     setIsDeletingId(gameId);
     setActionError(null);
     try {
       await deleteGameRecord(gameId);
+      soundFX.playTileClick();
       if (selectedGame?.gameId === gameId) {
         setSelectedGame(null);
       }
@@ -67,7 +70,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
 
   const handleCellStateEdit = (position: number, newState: CellState) => {
     setEditingCells((prev) =>
-      prev.map((c) => (c.position === position ? { ...c, state: newState, confirmedByUser: true } : c))
+      prev.map((c) =>
+        c.position === position ? { ...c, state: newState, confirmedByUser: true } : c
+      )
     );
   };
 
@@ -93,6 +98,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
         editingCells
       );
 
+      soundFX.playGemReveal();
       setSelectedGame({
         ...selectedGame,
         revealedCount: revealedTotal,
@@ -103,290 +109,282 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ games }) => {
       });
       setIsEditing(false);
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Error al actualizar los resultados.');
+      setActionError(err instanceof Error ? err.message : 'Error al actualizar la partida.');
     } finally {
       setIsUpdating(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      {/* Header Banner */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Top Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#10172e] via-[#0b1020] to-[#16122d] border border-cyan-500/30 p-5 sm:p-6 shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-950/60 border border-blue-500/40 rounded-xl text-blue-400">
-              <History className="w-6 h-6" />
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-cyan-950/70 border border-cyan-500/40 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
+              <HistoryIcon3D className="w-8 h-8" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                Historial Real de Partidas
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+                  Historial de Partidas Reales
+                </h1>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 tabular-nums">
                   {games.length} {games.length === 1 ? 'partida' : 'partidas'}
                 </span>
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Consulta, filtra, audita y edita tus registros guardados en Firestore.
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5 leading-relaxed">
+                Registro inmutable sincronizado en Firestore. Consulta, audita o ajusta cualquier casilla registrada.
               </p>
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-slate-950/80 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs">
-              <Filter className="w-3.5 h-3.5 text-slate-400" />
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as any)}
-                className="bg-transparent text-white focus:outline-none"
+          {/* Quick Status Filter Tabs */}
+          <div className="flex items-center gap-1.5 bg-[#0a0f1e] p-1.5 rounded-2xl border border-slate-800 text-xs font-semibold self-end sm:self-center shrink-0">
+            {[
+              { id: 'all', label: 'Todas' },
+              { id: 'win', label: 'Victorias' },
+              { id: 'lost', label: 'Derrotas' },
+              { id: 'ongoing', label: 'En curso' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  soundFX.playTileClick();
+                  setFilterStatus(f.id as any);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition ${
+                  filterStatus === f.id
+                    ? 'bg-cyan-600 text-white font-bold shadow-md'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
               >
-                <option value="all" className="bg-slate-900">Todos los estados</option>
-                <option value="win" className="bg-slate-900">Victorias</option>
-                <option value="lost" className="bg-slate-900">Derrotas</option>
-                <option value="ongoing" className="bg-slate-900">En curso</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-1.5 bg-slate-950/80 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <input
-                type="date"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-                className="bg-transparent text-white focus:outline-none text-xs"
-              />
-              {filterDate && (
-                <button
-                  type="button"
-                  onClick={() => setFilterDate('')}
-                  className="text-slate-400 hover:text-white"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {actionError && (
-        <div className="p-3 bg-red-950/60 border border-red-500/50 rounded-xl text-red-300 text-xs flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
-          <span>{actionError}</span>
+      {/* Real Statistics Summary Strip (Derived Exclusively from Saved Firestore Games) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-slate-800 text-center">
+          <span className="text-[10px] font-mono text-slate-400 uppercase block">Partidas Totales</span>
+          <span className="text-xl font-black text-white font-mono tabular-nums">{games.length}</span>
         </div>
-      )}
 
-      {/* Games List or Empty State */}
-      {games.length === 0 ? (
-        <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-12 text-center space-y-3">
-          <div className="w-14 h-14 rounded-full bg-slate-800/80 flex items-center justify-center mx-auto text-slate-500">
-            <History className="w-7 h-7" />
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-emerald-500/30 text-center">
+          <span className="text-[10px] font-mono text-emerald-400 uppercase block">Completadas (3/3)</span>
+          <span className="text-xl font-black text-emerald-300 font-mono tabular-nums">
+            {games.filter((g) => g.gameStatus === 'win').length}
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-rose-500/30 text-center">
+          <span className="text-[10px] font-mono text-rose-400 uppercase block">Perdidas (Mina)</span>
+          <span className="text-xl font-black text-rose-300 font-mono tabular-nums">
+            {games.filter((g) => g.gameStatus === 'lost').length}
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-cyan-500/30 text-center">
+          <span className="text-[10px] font-mono text-cyan-400 uppercase block">Gemas Seguras</span>
+          <span className="text-xl font-black text-cyan-300 font-mono tabular-nums">
+            {games.reduce((acc, g) => acc + (g.safeCount || 0), 0)}
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-red-500/30 text-center">
+          <span className="text-[10px] font-mono text-red-400 uppercase block">Minas Halladas</span>
+          <span className="text-xl font-black text-red-300 font-mono tabular-nums">
+            {games.reduce((acc, g) => acc + (g.mineCountRevealed || 0), 0)}
+          </span>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-[#0b1020]/90 border border-violet-500/30 text-center">
+          <span className="text-[10px] font-mono text-violet-400 uppercase block">Tasa de Victoria</span>
+          <span className="text-xl font-black text-violet-300 font-mono tabular-nums">
+            {games.length > 0
+              ? `${((games.filter((g) => g.gameStatus === 'win').length / games.length) * 100).toFixed(0)}%`
+              : '0%'}
+          </span>
+        </div>
+      </div>
+
+      {/* Main Grid: Game List + Game Detail Viewer */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Game Records List (7 cols) */}
+        <div className="lg:col-span-7 bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 className="text-sm font-bold text-white">
+              Lista de Rondas ({filteredGames.length})
+            </h3>
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="bg-[#11192e] border border-slate-700/80 rounded-xl px-2.5 py-1 text-xs text-white focus:outline-none font-mono"
+            />
           </div>
-          <h3 className="text-base font-bold text-slate-300">Base de datos de partidas vacía</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
-            La aplicación ha comenzado con la base de datos limpia sin registros sintéticos ni ficticios. Realiza un análisis en la pestaña &quot;Analizador&quot; y pulsa &quot;Guardar Partida&quot; para registrarla.
-          </p>
-        </div>
-      ) : filteredGames.length === 0 ? (
-        <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-8 text-center text-slate-400 text-xs">
-          No se encontraron partidas con los filtros seleccionados.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredGames.map((game) => {
-            const isWon = game.gameStatus === 'win';
-            const isLost = game.gameStatus === 'lost';
-            const dateStr = new Date(game.createdAt || game.gameDate).toLocaleDateString('es-ES', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
 
-            return (
-              <div
-                key={game.gameId}
-                className="bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 shadow-lg transition flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span
-                      className={`text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1 ${
-                        isWon
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                          : isLost
-                          ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                      }`}
-                    >
-                      {isWon ? <CheckCircle2 className="w-3 h-3" /> : isLost ? <XCircle className="w-3 h-3" /> : null}
-                      {isWon ? 'Victoria' : isLost ? 'Derrota' : 'En Curso'}
-                    </span>
-
-                    <span className="text-[11px] font-mono text-slate-500">{dateStr}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs mb-3 pb-3 border-b border-slate-800">
-                    <div>
-                      <span className="text-slate-500 block">Minas WIN10K</span>
-                      <span className="font-bold text-white font-mono">{game.mineCount} minas</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Reveladas</span>
-                      <span className="font-bold text-blue-400 font-mono">
-                        {game.revealedCount || game.cells?.filter((c) => c.state !== 'OCULTA').length || 0} / 25
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Plataforma</span>
-                      <span className="text-slate-300 font-medium">{game.platform || 'WIN10K'}</span>
-                    </div>
-                  </div>
-
-                  {/* Miniature 5x5 board preview */}
-                  <div className="flex justify-center my-3">
-                    <Board5x5 cells={game.cells || []} readOnly={true} size="sm" />
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenDetail(game)}
-                    className="flex-1 py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                  >
-                    <Eye className="w-3.5 h-3.5 text-blue-400" />
-                    Inspeccionar
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isDeletingId === game.gameId}
-                    onClick={() => handleDelete(game.gameId)}
-                    className="p-2 rounded-xl bg-slate-800/60 hover:bg-red-950/60 text-slate-400 hover:text-red-400 border border-transparent hover:border-red-500/40 transition disabled:opacity-50"
-                    title="Eliminar partida"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Game Detail Modal with Inspection, Screenshot & Cell Editing */}
-      {selectedGame && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-5 sm:p-6 max-w-2xl w-full shadow-2xl my-auto animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                  Auditoría de Partida
-                  <span className="text-xs font-mono text-slate-400">{selectedGame.gameId}</span>
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {new Date(selectedGame.createdAt || selectedGame.gameDate).toLocaleString('es-ES')} ·{' '}
-                  {selectedGame.platform} · {selectedGame.mineCount} Minas
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedGame(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                ✕
-              </button>
+          {filteredGames.length === 0 ? (
+            <div className="py-14 text-center space-y-3">
+              <TileClosed3D className="w-12 h-12 mx-auto opacity-40" />
+              <p className="text-sm font-semibold text-slate-300">
+                No hay partidas que coincidan con los filtros seleccionados
+              </p>
             </div>
-
-            <div className="space-y-5">
-              {/* Board and edit toggle */}
-              <div className="flex flex-col items-center">
-                <div className="flex items-center justify-between w-full mb-3">
-                  <span className="text-xs font-semibold text-slate-300">
-                    {isEditing ? 'Modo Edición: Pulsa cualquier casilla para corregirla' : 'Tablero 5x5 Registrado:'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(!isEditing)}
-                    className={`text-xs px-3 py-1 rounded-lg font-medium transition flex items-center gap-1.5 ${
-                      isEditing
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+          ) : (
+            <div className="space-y-3">
+              {filteredGames.map((game) => {
+                const isSelected = selectedGame?.gameId === game.gameId;
+                return (
+                  <div
+                    key={game.gameId}
+                    onClick={() => handleOpenDetail(game)}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-cyan-950/60 via-[#131d36] to-[#0c1326] border-cyan-400/80 shadow-[0_0_20px_rgba(6,182,212,0.25)]'
+                        : 'bg-[#10172e]/70 border-slate-800/80 hover:border-slate-700 hover:bg-[#131d38]'
                     }`}
                   >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    {isEditing ? 'Cancelar edición' : 'Editar casillas'}
-                  </button>
+                    <div className="flex items-center gap-4">
+                      <Board5x5 cells={game.cells || []} readOnly={true} size="sm" />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs font-bold px-2.5 py-0.5 rounded-lg font-mono ${
+                              game.gameStatus === 'win'
+                                ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                                : game.gameStatus === 'lost'
+                                ? 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
+                                : 'bg-slate-800 text-slate-300'
+                            }`}
+                          >
+                            {game.gameStatus === 'win'
+                              ? 'VICTORIA'
+                              : game.gameStatus === 'lost'
+                              ? 'DERROTA'
+                              : 'EN CURSO'}
+                          </span>
+                          <span className="text-xs font-mono font-bold text-cyan-400">
+                            {game.mineCount} Minas
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1 font-mono">
+                          {game.gameDate ? new Date(game.gameDate).toLocaleString() : 'Fecha N/A'}
+                        </p>
+                        <div className="flex items-center gap-3 text-xs font-mono text-slate-400 mt-0.5">
+                          <span className="text-emerald-400">{game.safeCount} Gemas</span>
+                          <span>·</span>
+                          <span className="text-rose-400">{game.mineCountRevealed} Minas</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(game.gameId);
+                        }}
+                        disabled={isDeletingId === game.gameId}
+                        className="px-3 py-1.5 text-xs font-bold rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/30 text-rose-300 transition"
+                      >
+                        {isDeletingId === game.gameId ? '...' : 'Eliminar'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Selected Game Detail Inspector (5 cols) */}
+        <div className="lg:col-span-5 space-y-5">
+          {selectedGame ? (
+            <div className="bg-[#0b1020]/90 border border-cyan-500/40 rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-5 flex flex-col items-center">
+              <div className="w-full flex items-center justify-between pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-black text-white">Detalle de Partida</h3>
+                  <span className="text-xs font-mono text-slate-400 truncate block max-w-[200px]">
+                    ID: {selectedGame.gameId}
+                  </span>
                 </div>
-
-                <Board5x5
-                  cells={editingCells}
-                  onCellStateChange={isEditing ? handleCellStateEdit : undefined}
-                  readOnly={!isEditing}
-                  showCoordinates={true}
-                  size="md"
-                />
-
-                {isEditing && (
-                  <button
-                    type="button"
-                    disabled={isUpdating}
-                    onClick={handleSaveEdits}
-                    className="mt-4 px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg flex items-center gap-2"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    {isUpdating ? 'Guardando...' : 'Guardar Correcciones en Firestore'}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(!isEditing)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    isEditing
+                      ? 'bg-amber-950/80 border-amber-500/60 text-amber-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {isEditing ? 'Cancelar Edición' : 'Editar Casillas'}
+                </button>
               </div>
 
-              {/* Original Screenshot Preview if saved in Storage */}
-              {selectedGame.screenshotUrl ? (
-                <div className="pt-3 border-t border-slate-800">
-                  <span className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
-                    Captura Archivada en Firebase Storage
-                  </span>
-                  <div className="max-h-48 overflow-hidden rounded-xl border border-slate-800 bg-black/40">
-                    <img
-                      src={selectedGame.screenshotUrl}
-                      alt="Captura original"
-                      className="w-full h-full object-contain mx-auto"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-3 border-t border-slate-800 text-[11px] text-slate-400 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-300 font-medium block mb-0.5">Modo sin costos de almacenamiento:</span>
-                  La captura fue analizada temporalmente en memoria por Gemini Vision. Todos los metadatos de la ronda y las 25 casillas verificadas están respaldadas permanentemente en Cloud Firestore.
+              {/* The 5x5 Board in Detail */}
+              <Board5x5
+                cells={isEditing ? editingCells : selectedGame.cells || []}
+                onCellStateChange={isEditing ? handleCellStateEdit : undefined}
+                readOnly={!isEditing}
+                showCoordinates={true}
+                size="md"
+              />
+
+              {isEditing && (
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={handleSaveEdits}
+                  className="w-full py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg"
+                >
+                  {isUpdating ? 'Guardando cambios...' : 'Guardar Modificaciones'}
+                </button>
+              )}
+
+              {actionError && (
+                <div className="w-full p-3 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-300 text-xs">
+                  {actionError}
                 </div>
               )}
-            </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between items-center">
-              <button
-                type="button"
-                onClick={() => handleDelete(selectedGame.gameId)}
-                className="px-3 py-2 text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-xl transition flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Eliminar Partida
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedGame(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
-              >
-                Cerrar
-              </button>
+              <div className="w-full p-4 rounded-2xl bg-[#10172e] border border-slate-800 text-xs space-y-2 font-mono text-slate-300">
+                <div className="flex justify-between">
+                  <span>Plataforma:</span>
+                  <span className="font-bold text-white">{selectedGame.platform}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Minas Configuradas:</span>
+                  <span className="font-bold text-cyan-400">{selectedGame.mineCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Resultado:</span>
+                  <span className="font-bold text-emerald-400 uppercase">{selectedGame.gameStatus}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Casillas Reveladas:</span>
+                  <span className="font-bold text-white">{selectedGame.revealedCount} / 25</span>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-8 shadow-2xl backdrop-blur-xl text-center space-y-3">
+              <HistoryIcon3D className="w-12 h-12 mx-auto opacity-50" />
+              <p className="text-sm font-semibold text-slate-300">
+                Selecciona una partida del listado
+              </p>
+              <p className="text-xs text-slate-500">
+                Podrás inspeccionar la cuadrícula 5×5 completa y realizar correcciones manuales.
+              </p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

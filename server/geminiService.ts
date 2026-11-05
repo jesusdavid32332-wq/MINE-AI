@@ -59,8 +59,8 @@ export async function analyzeMinesScreenshot(
   const prompt = `Analiza detalladamente esta captura de pantalla de una partida del juego Mines de WIN10K (cuadrícula de 5x5 casillas).
 
 OBJETIVO CRÍTICO:
-1. Evalúa la calidad visual de la imagen: si está borrosa, recortada, o si no corresponde al juego Mines.
-2. Identifica la cuadrícula exacta de 5 x 5 (25 casillas numeradas del 0 al 24 de izquierda a derecha, de arriba hacia abajo: fila 0 = 0..4, fila 1 = 5..9, etc.).
+1. Evalúa la calidad visual de la imagen: si está borrosa, recortada, o si no corresponde al juego Mines (reportar 'BLURRY', 'CROPPED', o 'NOT_MINES_GAME' en quality_assessment).
+2. Identifica la cuadrícula exacta de 5 x 5 (25 casillas numeradas del 0 al 24, con coordenadas fijas de F1-C1 a F5-C5: Fila 1 = F1-C1 a F1-C5, Fila 5 = F5-C1 a F5-C5).
 3. Clasifica CADA una de las 25 casillas con estricto rigor visual:
    - "OCULTA": La casilla permanece cerrada / sin abrir. NO intentes predecir lo que hay debajo. Es fundamental reportar "OCULTA" si la casilla no ha sido pulsada.
    - "SEGURA": La casilla ha sido pulsada y se observa un símbolo de éxito/seguro (ej. diamante verde, gema brillante, estrella azul, multiplicador).
@@ -68,7 +68,7 @@ OBJETIVO CRÍTICO:
    - "COFRE": Si se observa un cofre de tesoro dorado revelado.
    - "DESCONOCIDA": Si la casilla está borrosa, parcialmente tapada por un cartel o dedo, o el símbolo es confuso.
 4. Asigna un nivel de confianza (0.0 a 1.0) para cada casilla y una confianza global del análisis.
-5. Si en la captura se aprecia el contador de minas configurado (ej. "Minas: 3"), extráelo. ${userMinesConfig ? `El usuario indicó que la partida tiene ${userMinesConfig} minas.` : ''}
+5. Confirma la cantidad de minas configurada en la interfaz si es visible (la partida siempre está configurada con exactamente 3 minas).
 
 REGLA DE ORO DE SEGURIDAD:
 NO inventes resultados. No digas que una casilla oculta es segura o mina si no está revelada. Sé 100% fiel a lo que se ve en la imagen.`;

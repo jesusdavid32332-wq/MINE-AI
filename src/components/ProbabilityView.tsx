@@ -3,17 +3,15 @@ import { Board5x5 } from './Board5x5';
 import { CellData, CellState, GameRecord } from '../types';
 import { calculateLiveRoundProbabilities } from '../utils/probabilityEngine';
 import {
-  Brain,
-  AlertTriangle,
-  Info,
-  ShieldAlert,
-  Percent,
-  CheckCircle2,
-  Sparkles,
-  HelpCircle,
-  TrendingUp,
-  RefreshCw
-} from 'lucide-react';
+  ProbabilityIcon3D,
+  Gem3D,
+  Mine3D,
+  Chest3D,
+  TileClosed3D,
+  Win10kAuditIcon3D,
+  TrophyGold3D,
+} from './Icons3D';
+import { soundFX } from '../utils/soundEffects';
 
 interface ProbabilityViewProps {
   games: GameRecord[];
@@ -38,10 +36,10 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
 
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
 
-  // Calculate live hypergeometric conditional probability for current active board
+  // Hypergeometric conditional probability calculations
   const liveProb = calculateLiveRoundProbabilities(liveCells, mineCount);
 
-  // Toggle cell state for live assistant exploration
+  // Toggle cell state on live interactive board
   const handleCellClick = (position: number, currentState: CellState) => {
     const nextStates: Record<CellState, CellState> = {
       OCULTA: 'SEGURA',
@@ -51,6 +49,12 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
       DESCONOCIDA: 'OCULTA',
     };
     const nextState = nextStates[currentState] || 'OCULTA';
+
+    if (nextState === 'SEGURA') soundFX.playGemReveal();
+    else if (nextState === 'MINA') soundFX.playMineDetonation();
+    else if (nextState === 'COFRE') soundFX.playChestFanfare();
+    else soundFX.playTileClick();
+
     setLiveCells((prev) =>
       prev.map((c) => (c.position === position ? { ...c, state: nextState } : c))
     );
@@ -58,6 +62,7 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
   };
 
   const resetLiveBoard = () => {
+    soundFX.playTileClick();
     setLiveCells(
       Array.from({ length: 25 }, (_, i) => ({
         position: i,
@@ -71,7 +76,7 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
     setSelectedPosition(null);
   };
 
-  // Calculate historical frequency for the selected position (strictly from real Firestore games)
+  // Historical frequency for the selected position from real Firestore games
   const getHistoricalStatsForPos = (pos: number) => {
     if (games.length === 0) return null;
     let safeInPos = 0;
@@ -94,84 +99,80 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
       totalRevealed,
       frequencyPercent: totalRevealed > 0 ? (totalRevealed / games.length) * 100 : 0,
       mineRate: totalRevealed > 0 ? (mineInPos / totalRevealed) * 100 : 0,
+      safeRate: totalRevealed > 0 ? (safeInPos / totalRevealed) * 100 : 0,
     };
   };
 
   const selectedPosStats = selectedPosition !== null ? getHistoricalStatsForPos(selectedPosition) : null;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      {/* Header Banner */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-950/60 border border-purple-500/40 rounded-xl text-purple-400">
-              <Brain className="w-6 h-6" />
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Top Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#12132e] via-[#0b1020] to-[#1a1236] border border-violet-500/30 p-5 sm:p-6 shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-violet-950/70 border border-violet-400/40 rounded-2xl shadow-[0_0_20px_rgba(168,85,247,0.3)] shrink-0">
+              <ProbabilityIcon3D className="w-8 h-8" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                Análisis Inteligente y Probabilidad Real
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/30">
-                  Cálculo Hipergeométrico
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+                  Motor de Probabilidad Condicional en Vivo
+                </h1>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-violet-500/15 text-violet-300 border border-violet-500/40">
+                  Hipergeométrica Exacta
                 </span>
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Probabilidad condicional exacta en tiempo real basada en las leyes combinatorias del juego Mines en WIN10K.
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5 leading-relaxed">
+                Calcula al instante la probabilidad matemática pura del siguiente movimiento a medida que se descubren casillas seguras.
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={resetLiveBoard}
-            className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition flex items-center gap-1.5 self-end sm:self-center"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Limpiar Tablero
-          </button>
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            <button
+              type="button"
+              onClick={resetLiveBoard}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/80 transition active:scale-95"
+            >
+              Limpiar Tablero
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Important Transparency Directive */}
-      <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-200/90 flex items-start gap-3">
-        <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-semibold text-amber-300">
-            Principio de Honestidad Algorítmica y Cero Falsas Promesas:
-          </p>
-          <p>
-            WIN10K genera las posiciones de las minas de forma aleatoria e independiente en cada partida mediante un algoritmo criptográfico (Server Seed + Client Seed). Los resultados de partidas pasadas <strong>NO alteran la probabilidad de las casillas en la partida actual</strong>. Toda recomendación aquí presentada se basa estrictamente en la proporción matemática de minas restantes entre las casillas ocultas de la ronda en curso.
-          </p>
-        </div>
-      </div>
-
+      {/* Main Grid: Interactive Board Simulator + Real-Time Statistical Meters */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Interactive 5x5 Board with quick click toggling (6 cols) */}
-        <div className="lg:col-span-6 bg-slate-900/70 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col items-center">
-          <div className="w-full flex items-center justify-between mb-4">
+        {/* Interactive Board Simulator (7 cols) */}
+        <div className="lg:col-span-7 bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-xl flex flex-col items-center">
+          <div className="w-full flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
             <div>
-              <h3 className="font-bold text-white text-base">Tablero de la Ronda Activa</h3>
+              <h3 className="text-base font-black text-white">Simulador de Ronda en Vivo</h3>
               <p className="text-xs text-slate-400">
-                Haz clic en una casilla para alternar su estado revelado en tu partida
+                Haz clic en una casilla para simular descubrir gemas o minas.
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-400">Minas:</label>
+              <label className="text-xs font-mono text-slate-300 font-bold">Minas:</label>
               <select
                 value={mineCount}
-                onChange={(e) => setMineCount(parseInt(e.target.value, 10))}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                onChange={(e) => {
+                  setMineCount(parseInt(e.target.value, 10));
+                  soundFX.playTileClick();
+                }}
+                className="bg-[#131b31] border border-violet-500/40 text-violet-300 font-mono font-bold text-xs rounded-xl px-2.5 py-1 focus:outline-none"
               >
-                {Array.from({ length: 24 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {m} {m === 1 ? 'mina' : 'minas'}
+                {[1, 2, 3, 4, 5, 8, 10, 15, 20, 24].map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? 'mina' : 'minas'} {n === 3 ? '★ (Estrategia WIN10K)' : ''}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
+          {/* 5x5 Board */}
           <Board5x5
             cells={liveCells}
             onCellClick={handleCellClick}
@@ -180,146 +181,161 @@ export const ProbabilityView: React.FC<ProbabilityViewProps> = ({
             size="lg"
           />
 
-          <div className="w-full mt-4 p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] text-slate-400 flex justify-between items-center">
-            <span>💡 Haz clic para alternar: Oculta → Segura → Mina → Cofre → Desconocida</span>
-            {selectedPosition !== null && (
-              <span className="font-mono text-blue-400">Casilla #{selectedPosition} seleccionada</span>
-            )}
+          {/* Explanatory legend below board */}
+          <div className="w-full mt-6 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <Gem3D className="w-4 h-4" /> 1 clic = Segura
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Mine3D className="w-4 h-4" /> 2 clics = Mina
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Chest3D className="w-4 h-4" /> 3 clics = Cofre
+            </span>
+            <span className="flex items-center gap-1.5">
+              <TileClosed3D className="w-4 h-4" /> 4 clics = Oculta
+            </span>
           </div>
         </div>
 
-        {/* Right: Real-time Mathematical Analysis Readout (6 cols) */}
-        <div className="lg:col-span-6 space-y-5">
-          {/* Combinatorial Probability Card */}
-          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <Percent className="w-4 h-4 text-emerald-400" />
-              Probabilidad Condicional en la Partida Actual
-            </h3>
-
-            {/* Metric counters */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="bg-slate-950/70 border border-slate-800/80 p-3 rounded-xl text-center">
-                <span className="text-[10px] text-slate-400 block uppercase font-mono">Minas Totales</span>
-                <span className="text-lg font-bold text-white font-mono">{mineCount}</span>
-              </div>
-              <div className="bg-slate-950/70 border border-slate-800/80 p-3 rounded-xl text-center">
-                <span className="text-[10px] text-slate-400 block uppercase font-mono">Minas Reveladas</span>
-                <span className="text-lg font-bold text-red-400 font-mono">{liveProb.revealedMines}</span>
-              </div>
-              <div className="bg-slate-950/70 border border-slate-800/80 p-3 rounded-xl text-center">
-                <span className="text-[10px] text-slate-400 block uppercase font-mono">Seguras Reveladas</span>
-                <span className="text-lg font-bold text-emerald-400 font-mono">{liveProb.revealedSafe}</span>
-              </div>
-              <div className="bg-slate-950/70 border border-slate-800/80 p-3 rounded-xl text-center">
-                <span className="text-[10px] text-slate-400 block uppercase font-mono">Ocultas Restantes</span>
-                <span className="text-lg font-bold text-blue-400 font-mono">{liveProb.remainingHiddenCells}</span>
-              </div>
-            </div>
-
-            {/* Probability Bars */}
-            <div className="space-y-3 pt-2">
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-300 font-medium">Probabilidad de Casilla Segura</span>
-                  <span className="font-mono font-bold text-emerald-400">
-                    {(liveProb.exactProbabilitySafe * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-300 rounded-full"
-                    style={{ width: `${Math.max(0, Math.min(100, liveProb.exactProbabilitySafe * 100))}%` }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-300 font-medium">Probabilidad de Detonación (Mina)</span>
-                  <span className="font-mono font-bold text-red-400">
-                    {(liveProb.exactProbabilityMine * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300 rounded-full"
-                    style={{ width: `${Math.max(0, Math.min(100, liveProb.exactProbabilityMine * 100))}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Mathematical Verdict */}
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-xs space-y-1.5">
-              <span className="font-semibold text-slate-300 flex items-center gap-1.5">
-                <Brain className="w-3.5 h-3.5 text-purple-400" />
-                Veredicto Matemático Riguroso:
+        {/* Live Mathematical Gauges & Selected Tile Inspector (5 cols) */}
+        <div className="lg:col-span-5 space-y-5">
+          {/* Main Risk Gauge Card */}
+          <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ProbabilityIcon3D className="w-5 h-5" />
+                <span>Probabilidad en la Siguiente Casilla</span>
+              </h3>
+              <span
+                className={`text-xs font-mono font-bold px-2 py-0.5 rounded-lg border ${
+                  liveProb.riskLevel === 'CERTAIN_SAFE' || liveProb.riskLevel === 'VERY_LOW'
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                    : liveProb.riskLevel === 'LOW'
+                    ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40'
+                    : liveProb.riskLevel === 'MEDIUM'
+                    ? 'bg-yellow-950/80 text-yellow-300 border-yellow-500/40'
+                    : 'bg-rose-950/80 text-rose-300 border-rose-500/40'
+                }`}
+              >
+                Riesgo: {liveProb.riskLevel}
               </span>
-              <p className="text-slate-400 leading-relaxed">{liveProb.mathematicalVerdict}</p>
+            </div>
+
+            {/* Twin meters: Safe vs Mine */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Safe probability */}
+              <div className="p-4 rounded-2xl bg-[#0e1628] border border-emerald-500/30 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-400 mb-1">
+                  <Gem3D className="w-4 h-4" />
+                  <span>Segura (Gema)</span>
+                </div>
+                <div className="text-3xl font-black text-emerald-300 font-mono tabular-nums">
+                  {(liveProb.exactProbabilitySafe * 100).toFixed(1)}%
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2">
+                  <div
+                    className="h-full bg-emerald-400 transition-all duration-300"
+                    style={{ width: `${liveProb.exactProbabilitySafe * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Mine probability */}
+              <div className="p-4 rounded-2xl bg-[#0e1628] border border-rose-500/30 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-rose-400 mb-1">
+                  <Mine3D className="w-4 h-4" />
+                  <span>Mina (Detonación)</span>
+                </div>
+                <div className="text-3xl font-black text-rose-400 font-mono tabular-nums">
+                  {(liveProb.exactProbabilityMine * 100).toFixed(1)}%
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2">
+                  <div
+                    className="h-full bg-rose-500 transition-all duration-300"
+                    style={{ width: `${liveProb.exactProbabilityMine * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quick counters breakdown */}
+            <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono pt-1">
+              <div className="bg-[#11192e] p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Gemas Reveladas</span>
+                <span className="font-bold text-emerald-400 text-sm tabular-nums">
+                  {liveProb.revealedSafe}
+                </span>
+              </div>
+              <div className="bg-[#11192e] p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Minas Restantes</span>
+                <span className="font-bold text-rose-400 text-sm tabular-nums">
+                  {liveProb.remainingMines}
+                </span>
+              </div>
+              <div className="bg-[#11192e] p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Casillas Ocultas</span>
+                <span className="font-bold text-cyan-400 text-sm tabular-nums">
+                  {liveProb.remainingHiddenCells}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#111a31]/80 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+              <strong>Veredicto Matemático:</strong> {liveProb.mathematicalVerdict}
             </div>
           </div>
 
-          {/* Historical Evidence for Selected Cell */}
-          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-slate-200 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-400" />
-                Registro Histórico en Casilla #{selectedPosition !== null ? selectedPosition : '—'}
-              </span>
-              <span className="text-xs text-slate-500 font-mono">
-                {games.length} {games.length === 1 ? 'partida guardada' : 'partidas guardadas'}
-              </span>
-            </h3>
-
-            {games.length === 0 ? (
-              <div className="text-center py-6 text-slate-500 text-xs">
-                <p>Aún no hay partidas reales registradas en Firestore.</p>
-                <p className="mt-1">
-                  Guarda partidas en el Analizador para calcular frecuencias empíricas en esta posición.
-                </p>
+          {/* Selected Tile Inspector with Historical Comparison */}
+          {selectedPosition !== null && (
+            <div className="bg-[#0b1020]/90 border border-cyan-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-xl space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-cyan-950 border border-cyan-400 flex items-center justify-center font-mono font-bold text-cyan-300 text-xs">
+                    #{selectedPosition}
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white">
+                      Inspector de Casilla #{selectedPosition}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Fila {Math.floor(selectedPosition / 5)} · Col {selectedPosition % 5}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-bold text-slate-300">
+                  Estado: {liveCells[selectedPosition]?.state}
+                </span>
               </div>
-            ) : selectedPosition === null ? (
-              <p className="text-xs text-slate-400 py-3 text-center">
-                Haz clic en cualquier casilla del tablero para consultar su frecuencia empírica en tus partidas pasadas.
-              </p>
-            ) : selectedPosStats ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-mono">Veces Segura</span>
-                    <span className="font-bold text-emerald-400 font-mono text-base">
+
+              {selectedPosStats ? (
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between text-slate-300 font-mono">
+                    <span>Frecuencia en tus {games.length} partidas:</span>
+                    <span className="font-bold text-cyan-400 tabular-nums">
+                      {selectedPosStats.frequencyPercent.toFixed(1)}% ({selectedPosStats.totalRevealed} veces)
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-300 font-mono">
+                    <span>Gemas observadas en #{selectedPosition}:</span>
+                    <span className="font-bold text-emerald-400 tabular-nums">
                       {selectedPosStats.safeInPos}
                     </span>
                   </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-mono">Veces Mina</span>
-                    <span className="font-bold text-red-400 font-mono text-base">
+                  <div className="flex justify-between text-slate-300 font-mono">
+                    <span>Minas observadas en #{selectedPosition}:</span>
+                    <span className="font-bold text-rose-400 tabular-nums">
                       {selectedPosStats.mineInPos}
                     </span>
                   </div>
-                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-mono">Veces Revelada</span>
-                    <span className="font-bold text-blue-400 font-mono text-base">
-                      {selectedPosStats.totalRevealed}
-                    </span>
-                  </div>
                 </div>
-
-                <div className="text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-                  <p>
-                    En tus {games.length} partidas registradas, la casilla #{selectedPosition} fue revelada en el{' '}
-                    <strong className="text-white">{selectedPosStats.frequencyPercent.toFixed(1)}%</strong> de las partidas.
-                    De esas revelaciones, el{' '}
-                    <strong className="text-red-400">{selectedPosStats.mineRate.toFixed(1)}%</strong> resultó ser mina.
-                  </p>
-                  <p className="mt-1 text-slate-500 italic">
-                    Recordatorio: Este dato refleja eventos pasados y no condiciona la aleatoriedad de la partida actual.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </div>
+              ) : (
+                <p className="text-xs text-slate-500 leading-relaxed font-mono">
+                  No hay partidas registradas en Firestore aún para calcular frecuencias históricas de esta casilla.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

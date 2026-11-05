@@ -3,18 +3,14 @@ import { Board5x5 } from './Board5x5';
 import { GameRecord, TrainingSample } from '../types';
 import { computeEmpiricalStatistics } from '../utils/probabilityEngine';
 import {
-  Flame,
-  Bomb,
-  Gem,
-  Archive,
-  Eye,
-  Calendar,
-  AlertCircle,
-  BarChart3,
-  Layers,
-  Percent,
-  CheckCircle2
-} from 'lucide-react';
+  HeatmapIcon3D,
+  Gem3D,
+  Mine3D,
+  Chest3D,
+  TileClosed3D,
+  ValidationIcon3D,
+} from './Icons3D';
+import { soundFX } from '../utils/soundEffects';
 
 interface HeatmapsViewProps {
   games: GameRecord[];
@@ -73,38 +69,43 @@ export const HeatmapsView: React.FC<HeatmapsViewProps> = ({
     selectedPosition !== null ? stats.positions.find((p) => p.position === selectedPosition) : null;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      {/* Header Banner */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Top Banner with VIP Casino Aesthetic */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#171026] via-[#0b1020] to-[#1a0f2e] border border-rose-500/30 p-5 sm:p-6 shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-red-950/60 border border-red-500/40 rounded-xl text-red-400">
-              <Flame className="w-6 h-6 animate-pulse" />
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-rose-950/70 border border-rose-500/40 rounded-2xl shadow-[0_0_20px_rgba(239,68,68,0.3)] shrink-0">
+              <HeatmapIcon3D className="w-8 h-8" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                Estadísticas y Mapas de Calor Reales
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                  {games.length} {games.length === 1 ? 'partida registrada' : 'partidas registradas'}
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+                  Mapas de Calor Empíricos
+                </h1>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                  {games.length} {games.length === 1 ? 'partida' : 'partidas'} registradas
                 </span>
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Frecuencias empíricas calculadas exclusivamente a partir de tus partidas guardadas en Firestore.
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5 leading-relaxed">
+                Frecuencias reales registradas en tu historial. No son predicciones garantizadas: WIN10K es un juego criptográfico aleatorio independiente.
               </p>
             </div>
           </div>
 
           {/* Window Filter Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="flex items-center gap-1.5 bg-[#0a0f1e] p-1.5 rounded-2xl border border-slate-800 text-xs font-mono font-bold self-end sm:self-center shrink-0">
             {([20, 50, 100, 500, 'ALL'] as WindowSize[]).map((w) => (
               <button
                 key={w}
                 type="button"
-                onClick={() => setWindowSize(w)}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+                onClick={() => {
+                  soundFX.playTileClick();
+                  setWindowSize(w);
+                }}
+                className={`px-3 py-1.5 rounded-xl transition ${
                   windowSize === w
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'bg-rose-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 {w === 'ALL' ? 'Todas' : `${w}`}
@@ -112,241 +113,132 @@ export const HeatmapsView: React.FC<HeatmapsViewProps> = ({
             ))}
           </div>
         </div>
-
-        {/* Missing games notice */}
-        {missingGames > 0 && (
-          <div className="mt-4 p-3 bg-blue-950/40 border border-blue-500/30 rounded-xl text-xs text-blue-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-blue-400" />
-            <span>
-              Tienes <strong>{games.length}</strong> partidas guardadas. Faltan{' '}
-              <strong>{missingGames}</strong> partidas para completar la ventana seleccionada de{' '}
-              <strong>{windowSize}</strong> partidas. Las estadísticas actuales muestran la totalidad de las partidas disponibles.
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Top Real Stats Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Partidas Reales</span>
-          <span className="text-2xl font-bold font-mono text-white mt-1 block">
-            {stats.totalGames}
-          </span>
-          <span className="text-[10px] text-slate-500">En base de datos</span>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Casillas Reveladas</span>
-          <span className="text-2xl font-bold font-mono text-blue-400 mt-1 block">
-            {stats.totalRevealedCells}
-          </span>
-          <span className="text-[10px] text-slate-500">De 25 por tablero</span>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Seguras Reales</span>
-          <span className="text-2xl font-bold font-mono text-emerald-400 mt-1 block">
-            {stats.totalSafeCells}
-          </span>
-          <span className="text-[10px] text-slate-500">Gemas / Estrellas</span>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Minas Reales</span>
-          <span className="text-2xl font-bold font-mono text-red-400 mt-1 block">
-            {stats.totalMineCells}
-          </span>
-          <span className="text-[10px] text-slate-500">Bombas detonadas</span>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Cofres Reales</span>
-          <span className="text-2xl font-bold font-mono text-amber-400 mt-1 block">
-            {stats.totalChestCells}
-          </span>
-          <span className="text-[10px] text-slate-500">Bonos especiales</span>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl shadow-lg">
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Precisión Visión</span>
-          <span className="text-2xl font-bold font-mono text-purple-400 mt-1 block">
-            {stats.totalEvaluatedSamples > 0 ? `${stats.visionAccuracyRate.toFixed(1)}%` : '—'}
-          </span>
-          <span className="text-[10px] text-slate-500">
-            {stats.totalEvaluatedSamples} muestras
-          </span>
-        </div>
-      </div>
-
-      {/* Main Heatmap Section */}
+      {/* Main Grid: Heatmap Board & Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Heatmap Visual Board (7 cols) */}
-        <div className="lg:col-span-7 bg-slate-900/70 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col items-center">
-          <div className="w-full flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
-            <div>
-              <h3 className="font-bold text-white text-base flex items-center gap-2">
-                <Layers className="w-4 h-4 text-red-400" />
-                Mapa de Calor (25 Posiciones)
-              </h3>
-              <p className="text-xs text-slate-400">
-                Intensidad porcentual calculada según los resultados empíricos registrados.
-              </p>
-            </div>
-
-            {/* Heatmap Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs">
-              <button
-                type="button"
-                onClick={() => setHeatmapMode('mine')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition ${
-                  heatmapMode === 'mine'
-                    ? 'bg-red-600 text-white font-semibold shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Bomb className="w-3.5 h-3.5" />
-                Minas
-              </button>
-              <button
-                type="button"
-                onClick={() => setHeatmapMode('safe')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition ${
-                  heatmapMode === 'safe'
-                    ? 'bg-emerald-600 text-white font-semibold shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Gem className="w-3.5 h-3.5" />
-                Seguras
-              </button>
-              <button
-                type="button"
-                onClick={() => setHeatmapMode('revealed')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition ${
-                  heatmapMode === 'revealed'
-                    ? 'bg-blue-600 text-white font-semibold shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                Reveladas
-              </button>
-              <button
-                type="button"
-                onClick={() => setHeatmapMode('chest')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition ${
-                  heatmapMode === 'chest'
-                    ? 'bg-amber-600 text-white font-semibold shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Archive className="w-3.5 h-3.5" />
-                Cofres
-              </button>
+        {/* Heatmap 5x5 Board & Mode Tabs (7 cols) */}
+        <div className="lg:col-span-7 bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-xl flex flex-col items-center">
+          {/* Mode Selector Tabs */}
+          <div className="w-full flex items-center justify-between flex-wrap gap-2 mb-5 pb-3 border-b border-slate-800">
+            <h3 className="text-sm font-bold text-white">Modo del Mapa:</h3>
+            <div className="flex items-center gap-1.5 bg-[#0a0f1e] p-1 rounded-2xl border border-slate-800 text-xs font-semibold">
+              {[
+                { id: 'mine', label: 'Minas', icon: <Mine3D className="w-4 h-4" /> },
+                { id: 'safe', label: 'Gemas', icon: <Gem3D className="w-4 h-4" /> },
+                { id: 'revealed', label: 'Revelación', icon: <TileClosed3D className="w-4 h-4" /> },
+                { id: 'chest', label: 'Cofres', icon: <Chest3D className="w-4 h-4" /> },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    soundFX.playTileClick();
+                    setHeatmapMode(m.id as HeatmapMode);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition ${
+                    heatmapMode === m.id
+                      ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white font-bold shadow-md'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  {m.icon}
+                  <span>{m.label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          {games.length === 0 ? (
-            <div className="py-16 text-center text-slate-500 text-xs space-y-2">
-              <p className="text-sm font-semibold text-slate-400">Sin datos de partidas para generar el mapa de calor</p>
-              <p>Guarda tus partidas de WIN10K en el Analizador para ver las intensidades reales de cada casilla.</p>
+          {/* Missing Games Notice if window size exceeds data */}
+          {missingGames > 0 && (
+            <div className="w-full mb-4 p-3 bg-amber-950/40 border border-amber-500/30 rounded-2xl text-amber-300 text-xs">
+              Muestra reducida: faltan {missingGames} partidas para completar la ventana de {windowSize}. Se calculan las {games.length} partidas reales disponibles.
             </div>
-          ) : (
-            <>
-              <Board5x5
-                cells={[]}
-                heatmapValues={heatmapValues}
-                heatmapColor={heatmapColorMap[heatmapMode]}
-                onCellClick={(pos) => setSelectedPosition(pos)}
-                highlightPosition={selectedPosition}
-                showCoordinates={true}
-                size="lg"
-                readOnly={true}
-              />
-
-              <div className="w-full mt-4 flex items-center justify-between text-xs text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-                <span className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded bg-slate-800" /> 0% (Baja intensidad)
-                </span>
-                <span className="font-mono text-[11px] text-slate-500">Escala gradual</span>
-                <span className="flex items-center gap-2">
-                  <span
-                    className={`w-3 h-3 rounded ${
-                      heatmapMode === 'mine'
-                        ? 'bg-red-500'
-                        : heatmapMode === 'safe'
-                        ? 'bg-emerald-500'
-                        : heatmapMode === 'revealed'
-                        ? 'bg-blue-500'
-                        : 'bg-amber-500'
-                    }`}
-                  />
-                  100% (Alta intensidad)
-                </span>
-              </div>
-            </>
           )}
+
+          {/* The Board with Thermal Overlays */}
+          <Board5x5
+            cells={stats.positions.map((p) => ({
+              position: p.position,
+              row: p.row,
+              column: p.column,
+              state: 'OCULTA',
+              confidence: 1,
+              confirmedByUser: true,
+            }))}
+            heatmapValues={heatmapValues}
+            heatmapColor={heatmapColorMap[heatmapMode]}
+            onCellClick={(pos) => {
+              soundFX.playTileClick();
+              setSelectedPosition(pos);
+            }}
+            highlightPosition={selectedPosition}
+            showCoordinates={true}
+            size="lg"
+          />
+
+          <p className="text-xs text-slate-400 text-center mt-5">
+            Pulsa cualquier casilla en el mapa de calor para inspeccionar su historial exacto.
+          </p>
         </div>
 
-        {/* Selected Position Detailed Inspector (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-slate-200 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-blue-400" />
-                Detalle de Casilla #{selectedPosition !== null ? selectedPosition : '—'}
-              </span>
-              {selectedPosDetail && (
-                <span className="text-xs font-mono text-slate-400">
-                  Fila {selectedPosDetail.row}, Col {selectedPosDetail.column}
+        {/* Selected Position Detail & Statistical Summary (5 cols) */}
+        <div className="lg:col-span-5 space-y-5">
+          {/* Tile Position Detail Card */}
+          <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <HeatmapIcon3D className="w-5 h-5" />
+                <span>
+                  {selectedPosition !== null
+                    ? `Detalle de la Casilla #${selectedPosition}`
+                    : 'Selecciona una Casilla'}
+                </span>
+              </h3>
+              {selectedPosition !== null && (
+                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-500/40">
+                  Fila {Math.floor(selectedPosition / 5)} · Col {selectedPosition % 5}
                 </span>
               )}
-            </h3>
+            </div>
 
-            {selectedPosition === null ? (
-              <p className="text-xs text-slate-400 py-8 text-center">
-                Haz clic en una casilla del mapa de calor para ver su desglose estadístico exacto.
-              </p>
-            ) : selectedPosDetail ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-center">
-                    <span className="text-[10px] text-slate-400 font-mono block">Veces Segura</span>
-                    <span className="text-xl font-bold text-emerald-400 font-mono">
-                      {selectedPosDetail.safeCount}
-                    </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      {(selectedPosDetail.safeRate * 100).toFixed(1)}% de sus aperturas
+            {selectedPosDetail ? (
+              <div className="space-y-3 pt-1">
+                <div className="p-3.5 rounded-2xl bg-[#10172e] border border-slate-800 space-y-2 text-xs font-mono">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Partidas donde se reveló:</span>
+                    <span className="font-bold text-white tabular-nums">
+                      {selectedPosDetail.safeCount + selectedPosDetail.mineCount + selectedPosDetail.chestCount} / {stats.totalGames}
                     </span>
                   </div>
-
-                  <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-center">
-                    <span className="text-[10px] text-slate-400 font-mono block">Veces Mina</span>
-                    <span className="text-xl font-bold text-red-400 font-mono">
-                      {selectedPosDetail.mineCount}
+                  <div className="flex justify-between text-emerald-400">
+                    <span>Gemas seguras confirmadas:</span>
+                    <span className="font-bold tabular-nums">
+                      {selectedPosDetail.safeCount} ({(selectedPosDetail.safeRate * 100).toFixed(1)}%)
                     </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      {(selectedPosDetail.mineRate * 100).toFixed(1)}% de sus aperturas
+                  </div>
+                  <div className="flex justify-between text-rose-400">
+                    <span>Minas detonadas / reveladas:</span>
+                    <span className="font-bold tabular-nums">
+                      {selectedPosDetail.mineCount} ({(selectedPosDetail.mineRate * 100).toFixed(1)}%)
                     </span>
+                  </div>
+                  <div className="flex justify-between text-amber-300">
+                    <span>Cofres observados:</span>
+                    <span className="font-bold tabular-nums">{selectedPosDetail.chestCount}</span>
                   </div>
                 </div>
 
-                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-center">
-                  <span className="text-[10px] text-slate-400 font-mono block">Tasa de Revelado</span>
-                  <span className="text-xl font-bold text-blue-400 font-mono">
-                    {(selectedPosDetail.revealedRate * 100).toFixed(1)}%
-                  </span>
-                  <span className="text-[10px] text-slate-500 block">
-                    Revelada en {selectedPosDetail.safeCount + selectedPosDetail.mineCount + selectedPosDetail.chestCount} de {stats.totalGames} partidas
-                  </span>
-                </div>
-
-                <div className="text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 leading-relaxed">
-                  Esta casilla ha detonado {selectedPosDetail.mineCount} veces en tu historial. Si WIN10K utiliza distribución pseudoaleatoria independiente en cada ronda, esta tasa histórica tenderá a normalizarse con la proporción de minas configuradas conforme crezca el tamaño muestral.
+                <div className="p-3.5 rounded-2xl bg-[#0e1424] border border-slate-800 text-xs text-slate-300 leading-relaxed font-normal">
+                  <strong>Interpretación Estadística:</strong> Las frecuencias calculadas corresponden estrictamente a la muestra registrada ({stats.totalGames} partidas). En sistemas Provably Fair las rondas futuras son independientes de las pasadas.
                 </div>
               </div>
-            ) : null}
+            ) : (
+              <div className="py-8 text-center text-xs text-slate-400 space-y-2">
+                <TileClosed3D className="w-10 h-10 mx-auto opacity-50" />
+                <p>Haz clic en cualquier casilla de la cuadrícula 5×5 para ver su desglose empírico.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

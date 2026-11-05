@@ -22,10 +22,15 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
       await signInWithPopup(auth, googleProvider);
       if (onSuccess) onSuccess();
     } catch (err: unknown) {
-      console.error(err);
-      setAuthError(
-        err instanceof Error ? err.message : 'Error al iniciar sesión con Google.'
-      );
+      console.warn('Aviso de Google Sign In:', err);
+      const fbError = err as { code?: string; message?: string };
+      if (fbError?.code === 'auth/popup-blocked') {
+        setAuthError('El navegador bloqueó la ventana emergente. Por favor permite popups para continuar.');
+      } else if (fbError?.code === 'auth/popup-closed-by-user') {
+        setAuthError('Ventana cerrada antes de completar el acceso.');
+      } else {
+        setAuthError(err instanceof Error ? err.message : 'Error al iniciar sesión con Google.');
+      }
     } finally {
       setLoading(false);
     }
@@ -38,7 +43,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess }) => {
       await signInAnonymously(auth);
       if (onSuccess) onSuccess();
     } catch (err: unknown) {
-      console.error(err);
+      console.warn('Aviso de inicio anónimo:', err);
       setAuthError(
         err instanceof Error ? err.message : 'Error al iniciar sesión de invitado.'
       );

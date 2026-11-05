@@ -1,5 +1,16 @@
 export type CellState = 'OCULTA' | 'SEGURA' | 'MINA' | 'COFRE' | 'DESCONOCIDA';
 
+export type UserSelectionState = 'UNSELECTED' | 'PENDING' | 'CONFIRMED_SAFE' | 'CONFIRMED_MINE';
+
+export interface UserSelectionCell {
+  position: number; // 0 to 24
+  coordinate: string; // "F1-C1" to "F5-C5"
+  row: number; // 0 to 4
+  column: number; // 0 to 4
+  status: UserSelectionState;
+  updatedAt?: string;
+}
+
 export interface CellData {
   cellId?: string;
   gameId?: string;
@@ -7,6 +18,7 @@ export interface CellData {
   position: number; // 0 to 24
   row: number; // 0 to 4
   column: number; // 0 to 4
+  coordinate?: string; // "F1-C1" to "F5-C5"
   state: CellState;
   confidence: number; // 0.0 to 1.0
   confirmedByUser: boolean;

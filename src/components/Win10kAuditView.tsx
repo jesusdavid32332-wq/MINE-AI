@@ -1,17 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Win10kAudit } from '../types';
-import {
-  ShieldAlert,
-  CheckCircle2,
-  ExternalLink,
-  Lock,
-  Camera,
-  History,
-  Calculator,
-  Search,
-  AlertTriangle,
-  Cpu
-} from 'lucide-react';
+import { Win10kAuditIcon3D, ScannerIcon3D, Gem3D, Mine3D, ProbabilityIcon3D } from './Icons3D';
 
 export const Win10kAuditView: React.FC = () => {
   const [auditInfo, setAuditInfo] = useState<Win10kAudit | null>(null);
@@ -41,113 +30,65 @@ export const Win10kAuditView: React.FC = () => {
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       {/* Header Banner */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-blue-950/60 border border-blue-500/40 rounded-xl text-blue-400">
-            <Search className="w-6 h-6" />
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#11192e] via-[#0b1020] to-[#15122c] border border-cyan-500/30 p-5 sm:p-6 shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-cyan-950/70 border border-cyan-500/40 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
+            <Win10kAuditIcon3D className="w-8 h-8" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              Auditoría Técnica e Integración con WIN10K
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+                Auditoría Técnica y Arquitectura WIN10K
+              </h1>
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40">
                 win10kk.com
               </span>
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400">
-              Informe exhaustivo de seguridad sobre la disponibilidad de API oficial y arquitectura criptográfica del juego.
+            </div>
+            <p className="text-xs sm:text-sm text-slate-300 mt-0.5 leading-relaxed">
+              Informe exhaustivo de seguridad sobre la disponibilidad de API oficial y el algoritmo criptográfico Provably Fair.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Official Status Card */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
-          <div>
-            <h3 className="text-base font-bold text-white">Estado de la Integración con WIN10K</h3>
-            <span className="text-xs text-slate-400 font-mono">Dominio auditado: https://win10kk.com</span>
+      {/* Main Audit Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Win10kAuditIcon3D className="w-5 h-5" />
+            <span>Arquitectura Criptográfica</span>
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed font-normal">
+            WIN10K utiliza el estándar internacional de la industria <strong>Provably Fair HMAC-SHA256</strong>. El resultado de las 25 casillas queda determinado antes del primer clic mediante la combinación de un Server Seed (semilla del servidor), un Client Seed (semilla del cliente) y un Nonce secuencial.
+          </p>
+          <div className="p-3 rounded-2xl bg-[#10172e] border border-slate-800 text-xs font-mono text-cyan-300">
+            Hash = HMAC_SHA256(ServerSeed, ClientSeed + ":" + Nonce)
           </div>
-          <span className="self-start sm:self-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5" />
-            Sin API Pública para Casillas Ocultas
-          </span>
         </div>
 
-        <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
-          <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
-            <h4 className="font-semibold text-white flex items-center gap-2">
-              <Cpu className="w-4 h-4 text-purple-400" />
-              Arquitectura del Juego: Provably Fair Criptográfico
-            </h4>
-            <p>
-              El juego Mines en plataformas como WIN10K implementa el estándar <strong>Provably Fair (Demostrablemente Justo)</strong> con HMAC-SHA256:
-            </p>
-            <ul className="list-disc list-inside space-y-1 text-slate-400 ml-2">
-              <li>
-                <strong>Server Seed Criptográfico:</strong> Generado en el servidor antes de comenzar la partida y enviado en formato Hash SHA-256 al navegador. La clave original no se revela hasta finalizar la ronda.
-              </li>
-              <li>
-                <strong>Client Seed & Nonce:</strong> Generado en el cliente para garantizar que el servidor no pueda manipular el resultado a posteriori.
-              </li>
-              <li>
-                <strong>Posiciones de Minas:</strong> Se calculan combinando ambos seeds mediante HMAC. Durante la ronda activa, <em>ninguna API legítima expone las posiciones de las minas restantes</em>, garantizando la equidad estocástica.
-              </li>
-            </ul>
-          </div>
-
-          <div className="p-4 rounded-xl bg-red-950/30 border border-red-500/30 text-red-200/90 space-y-2">
-            <h4 className="font-semibold text-red-300 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-red-400" />
-              Advertencia Contra Bots o Vendedores de Señales Falsas
-            </h4>
-            <p>
-              Cualquier canal, aplicación o extensión que afirme poseer una &quot;API predictora&quot; o &quot;hack para ver las minas ocultas de WIN10K&quot; es <strong>matemáticamente fraudulenta</strong>. Violar la criptografía del juego en tiempo real requeriría romper el hash SHA-256 del servidor.
-            </p>
+        <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <ScannerIcon3D className="w-5 h-5" />
+            <span>Operación Legítima de MINES AI</span>
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed font-normal">
+            MINES AI opera 100% de manera legítima sin inyecciones de código ni exploits. Emplea visión computacional con Gemini para leer las casillas que ya han sido descubiertas por el usuario y calcula las probabilidades exactas del siguiente movimiento.
+          </p>
+          <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-xs font-mono text-emerald-300">
+            ✓ Cumplimiento ético: Cero hacks, matemáticas puras.
           </div>
         </div>
       </div>
 
-      {/* Origin of Data Tracker (Mandatory transparency requirement) */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-        <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <CheckCircle2 className="w-4.5 h-4.5 text-blue-400" />
-          Trazabilidad de Fuentes de Información en MINES AI
+      {/* Disclaimer Card */}
+      <div className="bg-[#0b1020]/90 border border-amber-500/30 rounded-3xl p-6 shadow-2xl backdrop-blur-xl space-y-2">
+        <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+          <span>Aviso de Transparencia Matemática</span>
         </h3>
-        <p className="text-xs text-slate-400">
-          En cumplimiento del principio de rigor, MINES AI distingue claramente el origen de cada dato presentado:
+        <p className="text-xs text-slate-300 leading-relaxed">
+          {auditInfo?.honest_disclaimer ||
+            'MINES AI no realiza trampas ni hacks. Calcula probabilidades condicionales matemáticas exactas basadas en la configuración del juego y analiza la distribución empírica de partidas guardadas por el usuario.'}
         </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-          <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
-            <div className="flex items-center gap-2 text-blue-400 font-semibold text-xs">
-              <Camera className="w-4 h-4" />
-              1. Capturas de Pantalla
-            </div>
-            <p className="text-[11px] text-slate-400 leading-normal">
-              Procesadas mediante Gemini 3.8 Flash Vision para detectar con precisión óptica las casillas que ya han sido pulsadas (gemas, bombas o cofres). <em>Las casillas sin pulsar se marcan estrictamente como OCULTA.</em>
-            </p>
-          </div>
-
-          <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
-            <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs">
-              <Calculator className="w-4 h-4" />
-              2. Probabilidad Matemática
-            </div>
-            <p className="text-[11px] text-slate-400 leading-normal">
-              Fórmula combinatoria hipergeométrica condicional: (Minas Restantes) / (Casillas Ocultas). Rigor matemático exacto para la ronda en juego sin adivinaciones.
-            </p>
-          </div>
-
-          <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
-            <div className="flex items-center gap-2 text-purple-400 font-semibold text-xs">
-              <History className="w-4 h-4" />
-              3. Historial de Partidas
-            </div>
-            <p className="text-[11px] text-slate-400 leading-normal">
-              Frecuencias empíricas guardadas de forma segura y privada en tu base de datos de Google Cloud Firestore. Cada usuario consulta exclusivamente sus registros.
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   );
