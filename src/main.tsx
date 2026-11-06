@@ -53,6 +53,15 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    console.error('MINES AI Global Error:', event.error || event.message);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    console.warn('MINES AI Unhandled Rejection:', event.reason);
+  });
+}
+
 const rootEl = document.getElementById('root');
 if (rootEl) {
   createRoot(rootEl).render(

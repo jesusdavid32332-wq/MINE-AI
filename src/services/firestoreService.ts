@@ -203,8 +203,7 @@ export function subscribeToUserGames(
 
   const q = query(
     collection(db, 'games'),
-    where('userId', '==', user.uid),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', user.uid)
   );
 
   return onSnapshot(
@@ -214,10 +213,11 @@ export function subscribeToUserGames(
       snapshot.forEach((doc) => {
         games.push(doc.data() as GameRecord);
       });
+      games.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       onData(games);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'games');
+      console.warn('Firestore games snapshot notice:', error);
       onError(error);
     }
   );
@@ -266,8 +266,7 @@ export function subscribeToTrainingSamples(
 
   const q = query(
     collection(db, 'training_samples'),
-    where('userId', '==', user.uid),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', user.uid)
   );
 
   return onSnapshot(
@@ -277,10 +276,11 @@ export function subscribeToTrainingSamples(
       snapshot.forEach((doc) => {
         samples.push(doc.data() as TrainingSample);
       });
+      samples.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       onData(samples);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'training_samples');
+      console.warn('Firestore training_samples snapshot notice:', error);
       onError(error);
     }
   );

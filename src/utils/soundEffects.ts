@@ -1,36 +1,57 @@
 // Web Audio API Synthesizer for Casino-Grade Sound FX
 // Zero external files, hermetic, instant latency (<10ms)
 
+function getSafeStorage(key: string): string | null {
+  try {
+    if (typeof window !== 'undefined' && 'localStorage' in window && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+  } catch {
+    // Graceful fallback when cookies/storage are restricted in iframes
+  }
+  return null;
+}
+
+function setSafeStorage(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined' && 'localStorage' in window && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    // Graceful fallback
+  }
+}
+
 class SoundFXManager {
   private ctx: AudioContext | null = null;
   private isEnabled: boolean = true;
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('mines_ai_sound_enabled');
-      this.isEnabled = saved !== null ? saved === 'true' : true;
-    }
+    const saved = getSafeStorage('mines_ai_sound_enabled');
+    this.isEnabled = saved !== null ? saved === 'true' : true;
   }
 
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
+    try {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (AudioCtx) {
+          this.ctx = new AudioCtx();
+        }
       }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+      return this.ctx;
+    } catch {
+      return null;
     }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
-    }
-    return this.ctx;
   }
 
   public toggleSound(): boolean {
     this.isEnabled = !this.isEnabled;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('mines_ai_sound_enabled', String(this.isEnabled));
-    }
+    setSafeStorage('mines_ai_sound_enabled', String(this.isEnabled));
     if (this.isEnabled) {
       this.playTileClick();
     }
@@ -43,9 +64,7 @@ class SoundFXManager {
 
   public setSoundEnabled(enabled: boolean) {
     this.isEnabled = enabled;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('mines_ai_sound_enabled', String(enabled));
-    }
+    setSafeStorage('mines_ai_sound_enabled', String(enabled));
   }
 
   // Tactile casino tile press click

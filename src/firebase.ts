@@ -34,9 +34,13 @@ googleProvider.addScope('email');
 googleProvider.addScope('profile');
 
 // Enforce browser local persistence for persistent sessions across reloads
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.warn('Persistencia de autenticación aviso:', err);
-});
+try {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('Persistencia de autenticación aviso:', err);
+  });
+} catch {
+  // Storage restricted in iframe environment
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -93,7 +97,11 @@ export function handleFirestoreError(
 // Initial connection verification test
 export async function testConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    if (!db) return false;
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      await getDocFromServer(doc(db, 'users', currentUser.uid));
+    }
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {

@@ -29,7 +29,6 @@ import { checkRedirectResult, syncUserProfile, AuthErrorInfo } from './services/
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -69,7 +68,7 @@ export default function App() {
   const [authModalError, setAuthModalError] = useState<AuthErrorInfo | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
-  // Firebase Auth State Tracker with safety timeout to avoid blank screens
+  // Firebase Auth State Tracker
   useEffect(() => {
     // Check for pending redirect result on app boot
     checkRedirectResult()
@@ -81,29 +80,20 @@ export default function App() {
       })
       .catch((err) => console.warn('Redirect check aviso:', err));
 
-    const fallbackTimer = setTimeout(() => {
-      setAuthLoading(false);
-    }, 1000);
-
     const unsubscribe = onAuthStateChanged(
       auth,
       (currentUser) => {
-        clearTimeout(fallbackTimer);
         setUser(currentUser);
-        setAuthLoading(false);
         if (currentUser) {
           syncUserProfile(currentUser).catch(() => {});
         }
       },
       (error) => {
-        console.warn('Auth observer error (fallback):', error);
-        clearTimeout(fallbackTimer);
-        setAuthLoading(false);
+        console.warn('Auth observer notice:', error);
       }
     );
 
     return () => {
-      clearTimeout(fallbackTimer);
       unsubscribe();
     };
   }, []);
@@ -145,23 +135,6 @@ export default function App() {
     setAuthModalError(null);
     setIsAuthModalOpen(true);
   };
-
-  // Quick Loading indicator
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-[#060913] flex flex-col items-center justify-center p-4 text-slate-100">
-        <div className="relative w-16 h-16 rounded-3xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-violet-600 p-[2px] shadow-[0_0_30px_rgba(6,182,212,0.4)] animate-pulse mb-4">
-          <div className="w-full h-full bg-[#0a0f1e] rounded-[22px] flex items-center justify-center">
-            <span className="font-black text-sm text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-violet-400">
-              M·AI
-            </span>
-          </div>
-        </div>
-        <h2 className="text-base font-black text-white tracking-widest">MINES AI PRO</h2>
-        <p className="text-xs text-slate-400 font-mono mt-1">Conectando infraestructura WIN10K...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black relative overflow-x-hidden">
