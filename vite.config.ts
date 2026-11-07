@@ -30,7 +30,7 @@ function setupApiMiddlewares(middlewares: any) {
       return;
     }
 
-    if (req.url === '/api/analyze-screenshot' && req.method === 'POST') {
+    if (req.url?.startsWith('/api/analyze-screenshot') && req.method === 'POST') {
       let body = '';
       req.on('data', (chunk: any) => {
         body += chunk;
@@ -95,7 +95,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), minesApiPlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve('.'),
       },
     },
     server: {

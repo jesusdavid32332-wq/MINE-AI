@@ -14,6 +14,8 @@ import {
 } from './Icons3D';
 import { soundFX } from '../utils/soundEffects';
 
+import { PWAInstallButton } from './PWAInstallButton';
+
 interface NavbarProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
@@ -43,7 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: DashboardIcon3D },
-    { id: 'analyzer', label: 'Analizador', icon: ScannerIcon3D },
+    { id: 'analyzer', label: 'Escáner IA', icon: ScannerIcon3D },
     { id: 'probability', label: 'Probabilidad', icon: ProbabilityIcon3D },
     { id: 'heatmaps', label: 'Mapas de Calor', icon: HeatmapIcon3D },
     { id: 'history', label: 'Historial', icon: HistoryIcon3D },
@@ -107,8 +109,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </nav>
 
-          {/* Right Action Controls: Audio Toggle, Online Status, VIP User */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Right Action Controls: PWA Install, Audio Toggle, Online Status, VIP User */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* PWA Install Button */}
+            <PWAInstallButton variant="compact" />
+
             {/* Audio FX Toggle Button */}
             <button
               type="button"

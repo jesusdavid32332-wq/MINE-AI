@@ -145,15 +145,14 @@ export function calculateWin10kFixedStrategy(
     // Safety ranking score:
     // If revealed: safe = 10, mine = -10
     // If hidden: base mathSafe (88%) adjusted slightly by empirical low-mine rate
+    // Safety ranking score based purely on verified mathematics and empirical game data:
     let score = mathSafe * 100;
     if (state === 'OCULTA' || state === 'DESCONOCIDA') {
-      // Lower empirical mine frequency boosts the rank score
-      score += (1 - empiricalMine) * 15;
-      // Slight symmetry bonus for balanced positioning
-      const isCorner = (row === 0 || row === 4) && (col === 0 || col === 4);
-      const isCenter = row >= 1 && row <= 3 && col >= 1 && col <= 3;
-      if (isCorner) score += 2;
-      else if (isCenter) score += 1;
+      // If historical user games recorded real observations for this specific tile,
+      // factor in the true recorded safety rate without fabricating positional biases.
+      if (exams > 0) {
+        score += (empiricalSafe - empiricalMine) * 10;
+      }
     } else if (state === 'SEGURA') {
       score = -500; // already revealed
     } else if (state === 'MINA') {

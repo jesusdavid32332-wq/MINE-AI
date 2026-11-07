@@ -180,6 +180,26 @@ export const ScanResultsOverlay: React.FC<ScanResultsOverlayProps> = ({
           </div>
         </div>
 
+        {/* Gemini Vision Real Analysis Diagnostic Banner */}
+        <div className="mb-3.5 p-3 rounded-2xl bg-[#081326] border border-cyan-500/30 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-start gap-2 text-slate-300">
+            <span className="text-cyan-400 font-black shrink-0">🤖 Diagnóstico Gemini:</span>
+            <span className="text-[11px] text-slate-300 leading-relaxed font-medium">
+              {qualityNotes}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+            <span className="px-2 py-0.5 rounded-md bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold">
+              Calidad: {qualityAssessment}
+            </span>
+            {overallConfidence !== null && overallConfidence !== undefined && (
+              <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-bold">
+                Confianza: {Math.round(overallConfidence * 100)}%
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Game State Banner (Victory or Detonation) if applicable */}
         {gameStatus === 'win' && (
           <div className="mb-4 p-3.5 rounded-2xl bg-emerald-950/80 border border-emerald-400 text-emerald-200 flex items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-pulse">

@@ -25,6 +25,7 @@ import { Win10kAuditView } from './components/Win10kAuditView';
 import { SettingsView } from './components/SettingsView';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { UserVipIcon3D, Gem3D } from './components/Icons3D';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { soundFX } from './utils/soundEffects';
 import { checkRedirectResult, syncUserProfile, AuthErrorInfo } from './services/authService';
 
@@ -49,12 +50,20 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Register PWA service worker safely
-    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
-      navigator.serviceWorker
-        .register('/service-worker.js')
-        .then((reg) => console.log('PWA Service Worker registered:', reg.scope))
-        .catch((err) => console.warn('SW registration skipped:', err));
+    // Safely manage PWA service worker
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      if (import.meta.env.DEV) {
+        // In dev mode, unregister any active service worker so Vite dev server modules load directly
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          for (const registration of registrations) {
+            registration.unregister();
+          }
+        }).catch(() => {});
+      } else {
+        navigator.serviceWorker
+          .register('/service-worker.js')
+          .catch((err) => console.warn('SW registration skipped:', err));
+      }
     }
 
     // Verify Firestore connection on boot
@@ -169,6 +178,7 @@ export default function App() {
             </button>
 
             <div className="flex items-center gap-2">
+              <PWAInstallButton variant="compact" />
               <button
                 type="button"
                 onClick={() => setIsMenuOpen(true)}

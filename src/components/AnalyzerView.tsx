@@ -1,32 +1,49 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Board5x5 } from './Board5x5';
-import { UserSelectionBoard } from './UserSelectionBoard';
-import { ScanResultsOverlay } from './ScanResultsOverlay';
-import { CellData, CellState, GameRecord, UserSelectionCell, UserSelectionState } from '../types';
-import { saveGameRecord, recordTrainingSample } from '../services/firestoreService';
-import { auth } from '../firebase';
+import React, { useState, useRef } from 'react';
 import {
   ScannerIcon3D,
+  StarCoin3D,
+  Win10kBomb3D,
+  Win10kChest3D,
+  Win10kClosedTile,
+  TileUnknown3D,
   Gem3D,
   Mine3D,
-  ValidationIcon3D,
-  Win10kAuditIcon3D,
-  ProbabilityIcon3D,
+  Chest3D,
   TrophyGold3D,
 } from './Icons3D';
 import { soundFX } from '../utils/soundEffects';
-import {
-  calculateWin10kFixedStrategy,
-  computeEmpiricalStatistics,
-  Win10kFixedStrategyState,
-} from '../utils/probabilityEngine';
+import { optimizeScreenshotForVision } from '../utils/imageOptimizer';
+import { saveGameRecord } from '../services/firestoreService';
+import { auth } from '../firebase';
+import { GameRecord } from '../types';
 
-interface RoundStep {
-  stepNumber: number;
-  label: string;
-  timestamp: string;
-  revealedCount: number;
-  cells: CellData[];
+interface CellDetection {
+  position: number;
+  row: number;
+  column: number;
+  state: 'OCULTA' | 'SEGURA' | 'MINA' | 'COFRE' | 'DESCONOCIDA';
+  confidence: number;
+  visual_description: string;
+}
+
+interface ScanAnalysisResult {
+  quality_assessment: 'CLEAR' | 'BLURRY' | 'CROPPED' | 'NOT_MINES_GAME';
+  quality_notes: string;
+  overall_confidence: number;
+  detected_mine_count: number | null;
+  detected_game_status: 'ready' | 'ongoing' | 'win' | 'lost' | 'unknown';
+  bet_amount_detected?: string | null;
+  multiplier_detected?: string | null;
+  balance_detected?: string | null;
+  pattern_notes?: string;
+  revealed_count: number;
+  safe_count: number;
+  mine_count: number;
+  chest_count: number;
+  hidden_count: number;
+  cells: CellDetection[];
+  model_used?: string;
+  latency_ms?: number;
 }
 
 interface AnalyzerViewProps {
@@ -34,206 +51,95 @@ interface AnalyzerViewProps {
   initialMinesCount?: number;
   games?: GameRecord[];
   onLoginClick?: () => void;
+  onOpenGameWithBoard?: (detectedCells: { [pos: number]: string }, detectedMines: Set<number>) => void;
 }
 
 export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
   onGameSaved,
-  games = [],
   onLoginClick,
 }) => {
-  // Mode 1: Nueva Partida | Mode 2: Actualizar Partida
-  const [analysisMode, setAnalysisMode] = useState<'MODE_1_NEW' | 'MODE_2_UPDATE'>('MODE_1_NEW');
-
-  // Board View: 'BOTH' (side by side) | 'GREEN' (Analysis only) | 'BLUE' (Selections only)
-  const [boardViewMode, setBoardViewMode] = useState<'BOTH' | 'GREEN' | 'BLUE'>('BOTH');
-
-  // Fullscreen Floating Results Screen (Pantalla Flotante Automática)
-  const [showResultsOverlay, setShowResultsOverlay] = useState<boolean>(false);
-
-  // Currently inspected cell position (0 to 24)
-  const [inspectedPosition, setInspectedPosition] = useState<number | null>(null);
-
-  // Screenshot upload state
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  // Photograph selection state
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [optimizedBase64, setOptimizedBase64] = useState<string | null>(null);
+  const [optimizedMime, setOptimizedMime] = useState<string>('image/jpeg');
+  const [fileDetails, setFileDetails] = useState<{ name: string; sizeKb: number; width: number; height: number } | null>(null);
 
-  // Fixed WIN10K rules: strictly 3 mines, 22 safe, target 3 safe tiles
-  const mineCount = 3;
-  const platform = 'WIN10K Mobile';
-  const [gameStatus, setGameStatus] = useState<'ongoing' | 'win' | 'lost'>('ongoing');
-
-  // Vision scan execution state
+  // Scanning execution state
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysisProgress, setAnalysisProgress] = useState<number>(0);
-  const [analysisStepLabel, setAnalysisStepLabel] = useState<string>('');
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
+  const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [progressLabel, setProgressLabel] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Gemini Analysis Result
+  const [scanResult, setScanResult] = useState<ScanAnalysisResult | null>(null);
+
+  // Automated Sequential Slow Reveal State (Abriendo casillas una por una lentamente tras escanear)
+  const [displayedCellsMap, setDisplayedCellsMap] = useState<{ [pos: number]: CellDetection }>({});
+  const [isOpeningSequentially, setIsOpeningSequentially] = useState<boolean>(false);
+  const [currentlyOpeningPos, setCurrentlyOpeningPos] = useState<number | null>(null);
+  const [openingProgress, setOpeningProgress] = useState<{ current: number; total: number; currentCoord: string } | null>(null);
+  const abortRevealRef = useRef<boolean>(false);
+
+  // Saving state
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
-  const [storageNotice, setStorageNotice] = useState<string | null>(null);
 
-  // Vision detection results
-  const [qualityAssessment, setQualityAssessment] = useState<string>('');
-  const [qualityNotes, setQualityNotes] = useState<string>('');
-  const [overallConfidence, setOverallConfidence] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Active 25 cells state (Tablero Verde: Panel de Análisis y Probabilidades)
-  const [cells, setCells] = useState<CellData[]>(() =>
-    Array.from({ length: 25 }, (_, i) => ({
-      position: i,
-      coordinate: `F${Math.floor(i / 5) + 1}-C${(i % 5) + 1}`,
-      row: Math.floor(i / 5),
-      column: i % 5,
-      state: 'OCULTA',
-      confidence: 1.0,
-      confirmedByUser: false,
-    }))
-  );
+  // Process chosen photograph
+  const processImageFile = async (file: File) => {
+    abortRevealRef.current = true;
+    setSelectedFile(file);
+    setError(null);
+    setScanResult(null);
+    setDisplayedCellsMap({});
+    setIsOpeningSequentially(false);
+    setCurrentlyOpeningPos(null);
+    setOpeningProgress(null);
+    setSaveSuccess(false);
+    soundFX.playTileClick();
 
-  // User manual selections in WIN10K (Tablero Azul: Seguimiento de Selecciones)
-  const [userSelections, setUserSelections] = useState<UserSelectionCell[]>(() =>
-    Array.from({ length: 25 }, (_, i) => ({
-      position: i,
-      coordinate: `F${Math.floor(i / 5) + 1}-C${(i % 5) + 1}`,
-      row: Math.floor(i / 5),
-      column: i % 5,
-      status: 'UNSELECTED' as UserSelectionState,
-    }))
-  );
-
-  // Round progression history
-  const [roundHistory, setRoundHistory] = useState<RoundStep[]>([]);
-  const [newlyRevealedPositions, setNewlyRevealedPositions] = useState<number[]>([]);
-  const [recentChangesSummary, setRecentChangesSummary] = useState<string | null>(null);
-
-  // Track AI predictions for training samples
-  const originalAiPredictionsRef = useRef<{ [pos: number]: { state: CellState; confidence: number } }>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Real empirical statistics computed strictly from recorded Firestore games
-  const empiricalStats = useMemo(() => {
-    return computeEmpiricalStatistics(games || []);
-  }, [games]);
-
-  // Fixed WIN10K Strategy Engine (3 mines, target 3 safe)
-  const strategyState: Win10kFixedStrategyState = useMemo(() => {
-    return calculateWin10kFixedStrategy(cells, empiricalStats.positions);
-  }, [cells, empiricalStats]);
-
-  // Synchronize gameStatus automatically with board cells
-  useEffect(() => {
-    if (strategyState.isGameLost) {
-      setGameStatus('lost');
-    } else if (strategyState.isGameWon) {
-      setGameStatus('win');
-    } else {
-      setGameStatus('ongoing');
-    }
-  }, [strategyState.isGameLost, strategyState.isGameWon]);
-
-  // Track whether an authentic initial screenshot has been recognized
-  const [hasRecognizedCapture, setHasRecognizedCapture] = useState<boolean>(false);
-  // Preserved 3 recommended positions from initial scan
-  const [initialRecommendedPositions, setInitialRecommendedPositions] = useState<number[]>([]);
-
-  // Cell ranks map for Green Board (only active when capture is recognized)
-  const cellRanksMap = useMemo(() => {
-    if (!hasRecognizedCapture) return {};
-    const map: { [pos: number]: number } = {};
-    for (const r of strategyState.rankedCells) {
-      if (r.rank > 0) {
-        map[r.position] = r.rank;
-      }
-    }
-    return map;
-  }, [hasRecognizedCapture, strategyState.rankedCells]);
-
-  const recommendedPositions = useMemo(() => {
-    if (!hasRecognizedCapture) return [];
-    if (initialRecommendedPositions.length === 3) {
-      return initialRecommendedPositions;
-    }
-    return strategyState.rankedCells
-      .filter((r) => r.isRecommended)
-      .slice(0, 3)
-      .map((r) => r.position);
-  }, [hasRecognizedCapture, initialRecommendedPositions, strategyState.rankedCells]);
-
-  // Detailed breakdown of the 3 recommended positions for WIN10K
-  const top3RecommendedDetails = useMemo(() => {
-    if (!hasRecognizedCapture || recommendedPositions.length === 0) return [];
-
-    const rowDescriptions = [
-      'Fila 1 (superior / arriba del todo)',
-      'Fila 2 (segunda fila)',
-      'Fila 3 (fila central)',
-      'Fila 4 (cuarta fila)',
-      'Fila 5 (inferior / abajo del todo)',
-    ];
-    const colDescriptions = [
-      'Columna 1 (izquierda del todo)',
-      'Columna 2 (segunda columna)',
-      'Columna 3 (columna central)',
-      'Columna 4 (cuarta columna)',
-      'Columna 5 (derecha del todo)',
-    ];
-
-    return recommendedPositions.map((pos, idx) => {
-      const row = Math.floor(pos / 5);
-      const col = pos % 5;
-      const cellData = cells.find((c) => c.position === pos);
-      const userSel = userSelections.find((s) => s.position === pos);
-
-      return {
-        number: idx + 1,
-        position: pos,
-        coordinate: `F${row + 1}-C${col + 1}`,
-        row: row + 1,
-        column: col + 1,
-        rowDescription: rowDescriptions[row] || `Fila ${row + 1}`,
-        colDescription: colDescriptions[col] || `Columna ${col + 1}`,
-        state: cellData?.state || 'OCULTA',
-        userStatus: userSel?.status || 'UNSELECTED',
+    try {
+      const opt = await optimizeScreenshotForVision(file, 1200, 0.88);
+      setImagePreview(opt.dataUrl);
+      setOptimizedBase64(opt.base64);
+      setOptimizedMime(opt.mimeType);
+      setFileDetails({
+        name: file.name,
+        sizeKb: opt.optimizedSizeKb,
+        width: opt.width,
+        height: opt.height,
+      });
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const str = reader.result as string;
+        setImagePreview(str);
+        setOptimizedBase64(str.replace(/^data:[^;]+;base64,/, ''));
+        setOptimizedMime(file.type || 'image/png');
+        setFileDetails({
+          name: file.name,
+          sizeKb: Math.round(file.size / 1024),
+          width: 0,
+          height: 0,
+        });
       };
-    });
-  }, [hasRecognizedCapture, recommendedPositions, cells, userSelections]);
-
-  const safeCount = cells.filter((c) => c.state === 'SEGURA').length;
-  const mineCountRevealed = cells.filter((c) => c.state === 'MINA').length;
-  const hiddenCount = cells.filter((c) => c.state === 'OCULTA' || c.state === 'DESCONOCIDA').length;
-
-  // Blue Board selection counts
-  const pendingCount = userSelections.filter((s) => s.status === 'PENDING').length;
-  const confirmedSafeCount = userSelections.filter((s) => s.status === 'CONFIRMED_SAFE').length;
-  const confirmedMinesCount = userSelections.filter((s) => s.status === 'CONFIRMED_MINE').length;
-  const unselectedCount = userSelections.filter((s) => s.status === 'UNSELECTED').length;
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processSelectedImage(file);
+      reader.readAsDataURL(file);
     }
   };
 
-  const processSelectedImage = (file: File) => {
-    setImageFile(file);
-    setSaveSuccess(false);
-    setAnalysisError(null);
-    setMismatchWarning(null);
-    setRecentChangesSummary(null);
-    soundFX.playTileClick();
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processImageFile(file);
+    }
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (e.dataTransfer.files?.[0]) {
-      processSelectedImage(e.dataTransfer.files[0]);
+      processImageFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -241,1499 +147,839 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({
     e.preventDefault();
   };
 
-  // Quick 1-click test loader for real authentic WIN10K initial screenshot
-  const handleLoadSampleInitialCapture = async () => {
-    soundFX.playTileClick();
-    setAnalysisError(null);
-    setMismatchWarning(null);
-    setSaveSuccess(false);
+  // Quick preset test loaders for authentic WIN10K screenshots
+  const handleLoadSample = async (samplePath: string, fileName: string) => {
     try {
-      const res = await fetch('/samples/win10k_sample_initial.png');
+      soundFX.playTileClick();
+      setError(null);
+      setScanResult(null);
+      setSaveSuccess(false);
+      const res = await fetch(samplePath);
       const blob = await res.blob();
-      const file = new File([blob], 'captura_inicial_win10k.png', { type: 'image/png' });
-      processSelectedImage(file);
+      const file = new File([blob], fileName, { type: 'image/png' });
+      await processImageFile(file);
     } catch (err) {
-      console.warn('Aviso cargando muestra inicial:', err);
+      console.warn('Error cargando muestra de prueba:', err);
     }
   };
 
-  // Run Gemini Vision Analysis with real progress simulation
-  const handleAnalyze = async () => {
-    if (!imagePreview) return;
+  // Reset scanner to cleanly analyze another photograph
+  const handleReset = () => {
+    abortRevealRef.current = true;
+    soundFX.playTileClick();
+    setSelectedFile(null);
+    setImagePreview(null);
+    setOptimizedBase64(null);
+    setFileDetails(null);
+    setScanResult(null);
+    setDisplayedCellsMap({});
+    setIsOpeningSequentially(false);
+    setCurrentlyOpeningPos(null);
+    setOpeningProgress(null);
+    setError(null);
+    setSaveSuccess(false);
+    setProgressPercent(0);
+    setProgressLabel('');
+  };
+
+  // Automated Sequential Slow Reveal Animation
+  const startSequentialReveal = async (cells: CellDetection[]) => {
+    abortRevealRef.current = false;
+    const revealedCells = cells.filter((c) => c.state && c.state !== 'OCULTA');
+
+    // Initialize all cells as closed (OCULTA)
+    const initialMap: { [pos: number]: CellDetection } = {};
+    cells.forEach((c) => {
+      initialMap[c.position] = { ...c, state: 'OCULTA' };
+    });
+    setDisplayedCellsMap(initialMap);
+
+    if (revealedCells.length === 0) {
+      setIsOpeningSequentially(false);
+      setCurrentlyOpeningPos(null);
+      setOpeningProgress(null);
+      return;
+    }
+
+    setIsOpeningSequentially(true);
+    const workingMap = { ...initialMap };
+
+    for (let i = 0; i < revealedCells.length; i++) {
+      if (abortRevealRef.current) break;
+
+      const cell = revealedCells[i];
+      setCurrentlyOpeningPos(cell.position);
+      setOpeningProgress({
+        current: i + 1,
+        total: revealedCells.length,
+        currentCoord: `F${cell.row + 1}-C${cell.column + 1}`,
+      });
+
+      // Suspense delay before flipping tile (550ms)
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      if (abortRevealRef.current) break;
+
+      // Play audio effect based on revealed element
+      if (cell.state === 'SEGURA') {
+        soundFX.playGemReveal();
+      } else if (cell.state === 'MINA') {
+        soundFX.playMineDetonation();
+      } else if (cell.state === 'COFRE') {
+        soundFX.playChestFanfare();
+      } else {
+        soundFX.playTileClick();
+      }
+
+      workingMap[cell.position] = cell;
+      setDisplayedCellsMap({ ...workingMap });
+
+      // Brief moment to admire the uncovered gem or bomb
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    setCurrentlyOpeningPos(null);
+    setIsOpeningSequentially(false);
+    setOpeningProgress(null);
+
+    if (!abortRevealRef.current) {
+      soundFX.playChestFanfare();
+    }
+  };
+
+  // Skip animation to instantly see all revealed cells
+  const handleSkipAnimation = (allCells: CellDetection[]) => {
+    abortRevealRef.current = true;
+    const fullMap: { [pos: number]: CellDetection } = {};
+    allCells.forEach((c) => {
+      fullMap[c.position] = c;
+    });
+    setDisplayedCellsMap(fullMap);
+    setCurrentlyOpeningPos(null);
+    setIsOpeningSequentially(false);
+    setOpeningProgress(null);
+    soundFX.playChestFanfare();
+  };
+
+  // Trigger Gemini Vision Analysis
+  const handleStartScan = async () => {
+    if (!imagePreview && !optimizedBase64) {
+      setError('Por favor selecciona o sube una fotografía antes de escanear.');
+      return;
+    }
 
     setIsAnalyzing(true);
-    setAnalysisError(null);
-    setMismatchWarning(null);
+    setError(null);
+    setScanResult(null);
+    setDisplayedCellsMap({});
+    setIsOpeningSequentially(false);
+    setCurrentlyOpeningPos(null);
+    setOpeningProgress(null);
     setSaveSuccess(false);
-    setAnalysisProgress(15);
-    setAnalysisStepLabel(
-      analysisMode === 'MODE_1_NEW'
-        ? 'Iniciando reconocimiento de tablero 5x5 inicial...'
-        : 'Comparando captura con el tablero de la ronda en curso...'
-    );
+    setProgressPercent(15);
+    setProgressLabel('Enviando fotografía al motor Gemini Visión...');
     soundFX.playScanSweep();
 
-    const pTimer1 = setTimeout(() => {
-      setAnalysisProgress(45);
-      setAnalysisStepLabel('Aislando cuadrícula 5x5 y coordenadas F1-C1 a F5-C5...');
-    }, 700);
-
-    const pTimer2 = setTimeout(() => {
-      setAnalysisProgress(75);
-      setAnalysisStepLabel('Evaluando gemas visibles y descartando minas...');
-    }, 1500);
+    // Smooth real-time progress steps while request is processed
+    const progressTimer = setInterval(() => {
+      setProgressPercent((prev) => {
+        if (prev < 40) {
+          setProgressLabel('Aislando cuadrícula y analizando símbolos...');
+          return prev + 15;
+        }
+        if (prev < 80) {
+          setProgressLabel('Identificando coordenadas F1-C1 a F5-C5...');
+          return prev + 12;
+        }
+        if (prev < 92) {
+          setProgressLabel('Verificando multiplicadores y estado de ronda...');
+          return prev + 4;
+        }
+        return prev;
+      });
+    }, 400);
 
     try {
+      const payloadBase64 = optimizedBase64 || imagePreview?.replace(/^data:[^;]+;base64,/, '');
+
       const response = await fetch('/api/analyze-screenshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageBase64: imagePreview,
-          mimeType: imageFile?.type || 'image/png',
+          imageBase64: payloadBase64,
+          mimeType: optimizedMime || selectedFile?.type || 'image/jpeg',
           mineCount: 3,
         }),
       });
 
-      clearTimeout(pTimer1);
-      clearTimeout(pTimer2);
-      setAnalysisProgress(95);
-      setAnalysisStepLabel('Calculando probabilidades hipergeométricas...');
+      clearInterval(progressTimer);
+      setProgressPercent(100);
+      setProgressLabel('¡Investigación con IA completada! Preparando apertura...');
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Error en el análisis (${response.status})`);
+        throw new Error(errData.error || `Error del servidor (${response.status})`);
       }
 
-      const result = await response.json();
+      const data: ScanAnalysisResult = await response.json();
 
-      setQualityAssessment(result.quality_assessment || 'CLEAR');
-      setQualityNotes(result.quality_notes || 'Análisis completado satisfactoriamente.');
-      setOverallConfidence(result.overall_confidence);
-
-      // If blurry or cropped, request another capture instead of guessing
-      if (
-        result.quality_assessment === 'BLURRY' ||
-        result.quality_assessment === 'CROPPED' ||
-        result.quality_assessment === 'NOT_MINES_GAME'
-      ) {
-        setAnalysisError(
-          `La captura de WIN10K no permite reconocer con suficiente nitidez las 25 casillas (${result.quality_assessment}). Por favor, toma una captura completa y nítida del juego en tu pantalla en lugar de intentar estimar casillas dudosas.`
+      // Check quality assessment
+      if (data.quality_assessment === 'NOT_MINES_GAME') {
+        setError(
+          `La imagen no corresponde a una partida de Mines de WIN10K. Por favor sube una captura de pantalla del juego.`
         );
         setIsAnalyzing(false);
         return;
       }
 
-      // Map incoming cells
-      const predictionsMap: { [pos: number]: { state: CellState; confidence: number } } = {};
-      const incomingCells: CellData[] = (result.cells || []).map((c: any) => {
-        predictionsMap[c.position] = { state: c.state, confidence: c.confidence };
-        const row = Math.floor(c.position / 5);
-        const col = c.position % 5;
-        return {
-          position: c.position,
-          coordinate: `F${row + 1}-C${col + 1}`,
-          row,
-          column: col,
-          state: c.state,
-          confidence: c.confidence,
-          confirmedByUser: false,
-          visualDescription: c.visual_description,
-          aiPredictedState: c.state,
-        };
-      });
-
-      originalAiPredictionsRef.current = predictionsMap;
-
-      // MODE 1: NUEVA PARTIDA
-      if (analysisMode === 'MODE_1_NEW') {
-        const initialMerged: CellData[] = incomingCells.map((c) => ({
-          ...c,
-        }));
-
-        setCells(initialMerged);
-
-        // Reset user selections on Blue Board
-        setUserSelections(
-          initialMerged.map((c) => {
-            let status: UserSelectionState = 'UNSELECTED';
-            if (c.state === 'SEGURA') status = 'CONFIRMED_SAFE';
-            else if (c.state === 'MINA') status = 'CONFIRMED_MINE';
-            return {
-              position: c.position,
-              coordinate: c.coordinate || `F${c.row + 1}-C${c.column + 1}`,
-              row: c.row,
-              column: c.column,
-              status,
-            };
-          })
+      if (data.quality_assessment === 'BLURRY' || data.quality_assessment === 'CROPPED') {
+        setError(
+          `La captura presenta problemas de visibilidad (${data.quality_assessment}). Diagnóstico: ${data.quality_notes || 'Intenta tomar una captura más clara y completa'}.`
         );
-
-        setNewlyRevealedPositions([]);
-        const totalSafeNow = initialMerged.filter((c) => c.state === 'SEGURA').length;
-        const hasMineNow = initialMerged.some((c) => c.state === 'MINA');
-
-        // Calculate recommendations for Mode 1
-        const initialStrat = calculateWin10kFixedStrategy(initialMerged, empiricalStats.positions);
-        const top3Recs = initialStrat.rankedCells
-          .filter((r) => r.state === 'OCULTA')
-          .slice(0, 3)
-          .map((r) => r.position);
-
-        setInitialRecommendedPositions(top3Recs);
-        setHasRecognizedCapture(true);
-        // COMPORTAMIENTO OBLIGATORIO 1: Mostrar automáticamente los dos tableros completos de 5x5
-        setBoardViewMode('BOTH');
-        // PANTALLA FLOTANTE AUTOMÁTICA AL FINALIZAR EL ESCANEO
-        setShowResultsOverlay(true);
-
-        if (hasMineNow) {
-          setGameStatus('lost');
-          soundFX.playMineDetonation();
-        } else if (totalSafeNow >= 3) {
-          setGameStatus('win');
-          soundFX.playChestFanfare();
-        } else {
-          setGameStatus('ongoing');
-          soundFX.playGemReveal();
-        }
-
-        setRecentChangesSummary(
-          `Tablero 5×5 inicial reconocido con éxito (3 minas configuradas). Sección "MIS 3 SELECCIONES" generada con las coordenadas recomendadas.`
-        );
-
-        const newStep: RoundStep = {
-          stepNumber: 1,
-          label: 'Tablero Inicial (Modo 1)',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          revealedCount: initialMerged.filter((c) => c.state !== 'OCULTA').length,
-          cells: initialMerged,
-        };
-        setRoundHistory([newStep]);
-
-        // Auto transition to Mode 2 for subsequent updates
-        setAnalysisMode('MODE_2_UPDATE');
-      } else {
-        // MODE 2: ACTUALIZAR PARTIDA EN CURSO
-        const previousCells = cells;
-        const newlyDiscovered: number[] = [];
-        let newSafeCount = 0;
-        let newMinesCount = 0;
-        let conflictDetected = false;
-
-        // Check if previously confirmed cells disappeared (different game check)
-        for (const prev of previousCells) {
-          if (prev.state === 'SEGURA' || prev.state === 'MINA') {
-            const incoming = incomingCells.find((c) => c.position === prev.position);
-            if (incoming && incoming.state === 'OCULTA') {
-              conflictDetected = true;
-            }
-          }
-        }
-
-        if (conflictDetected) {
-          setMismatchWarning(
-            'Atención: La captura parece corresponder a otra partida porque casillas ya confirmadas aparecen cerradas. Los resultados anteriores se han conservado por seguridad.'
-          );
-        }
-
-        const mergedCells: CellData[] = incomingCells.map((newCell) => {
-          const prev = previousCells.find((p) => p.position === newCell.position);
-          // Never erase previously revealed safe or mine
-          if (prev && (prev.state === 'SEGURA' || prev.state === 'MINA')) {
-            return prev;
-          }
-          if (prev && prev.state === 'OCULTA' && newCell.state !== 'OCULTA') {
-            newlyDiscovered.push(newCell.position);
-            if (newCell.state === 'SEGURA') newSafeCount++;
-            if (newCell.state === 'MINA') newMinesCount++;
-          }
-          return newCell;
-        });
-
-        setNewlyRevealedPositions(newlyDiscovered);
-
-        // Synchronize Blue Board selections with newly confirmed results
-        setUserSelections((prevSelections) =>
-          prevSelections.map((sel) => {
-            const cell = mergedCells.find((c) => c.position === sel.position);
-            if (cell) {
-              if (cell.state === 'SEGURA') return { ...sel, status: 'CONFIRMED_SAFE' };
-              if (cell.state === 'MINA') return { ...sel, status: 'CONFIRMED_MINE' };
-            }
-            return sel;
-          })
-        );
-
-        const totalSafeNow = mergedCells.filter((c) => c.state === 'SEGURA').length;
-        const hasMineNow = mergedCells.some((c) => c.state === 'MINA');
-
-        if (hasMineNow) {
-          setGameStatus('lost');
-          soundFX.playMineDetonation();
-        } else if (totalSafeNow >= 3) {
-          setGameStatus('win');
-          soundFX.playChestFanfare();
-        } else {
-          setGameStatus('ongoing');
-        }
-
-        if (newlyDiscovered.length > 0) {
-          setRecentChangesSummary(
-            `¡Actualización detectada! Se identificaron ${newlyDiscovered.length} nuevas casillas reveladas (+${newSafeCount} Gemas${
-              newMinesCount > 0 ? `, +${newMinesCount} Minas` : ''
-            }). Progreso: ${Math.min(3, totalSafeNow)}/3 casillas seguras.`
-          );
-          if (!hasMineNow && totalSafeNow < 3) {
-            soundFX.playGemReveal();
-          }
-        } else {
-          const revealedTotal = mergedCells.filter((c) => c.state !== 'OCULTA').length;
-          setRecentChangesSummary(
-            `Tablero sincronizado: ${revealedTotal} casillas activas reconocidas. Progreso: ${Math.min(
-              3,
-              totalSafeNow
-            )}/3.`
-          );
-          soundFX.playTileClick();
-        }
-
-        setCells(mergedCells);
-
-        // Recalcular recomendaciones dinámicamente sobre las casillas ocultas restantes
-        const updatedStrat = calculateWin10kFixedStrategy(mergedCells, empiricalStats.positions);
-        const updatedTop3 = updatedStrat.rankedCells
-          .filter((r) => r.state === 'OCULTA')
-          .slice(0, 3)
-          .map((r) => r.position);
-        setInitialRecommendedPositions(updatedTop3);
-
-        // PANTALLA FLOTANTE AUTOMÁTICA AL FINALIZAR EL ESCANEO EN MODO 2
-        setShowResultsOverlay(true);
-
-        const currentRevealed = mergedCells.filter((c) => c.state !== 'OCULTA').length;
-        const newStep: RoundStep = {
-          stepNumber: roundHistory.length + 1,
-          label: `Paso #${roundHistory.length + 1} (${Math.min(3, totalSafeNow)}/3)`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          revealedCount: currentRevealed,
-          cells: mergedCells,
-        };
-        setRoundHistory((prev) => [...prev, newStep]);
       }
-    } catch (err: unknown) {
-      console.warn('Aviso de análisis de visión:', err);
-      setAnalysisError(
-        err instanceof Error ? err.message : 'No se pudo conectar con el servicio de análisis de visión.'
+
+      setScanResult(data);
+
+      // Start automatic sequential slow reveal of all detected cells!
+      startSequentialReveal(data.cells);
+    } catch (err: any) {
+      clearInterval(progressTimer);
+      console.error('Scan error:', err);
+      setError(
+        err?.message || 'No se pudo conectar con el servicio de análisis de Gemini. Verifica tu conexión.'
       );
     } finally {
       setIsAnalyzing(false);
-      setAnalysisProgress(100);
     }
   };
 
-  // User manually edits a cell state on Green Board
-  const handleGreenCellClick = (position: number) => {
-    setInspectedPosition(position);
-  };
-
-  const handleGreenCellStateChange = (position: number, newState: CellState) => {
-    setCells((prev) =>
-      prev.map((c) =>
-        c.position === position
-          ? {
-              ...c,
-              state: newState,
-              confirmedByUser: true,
-            }
-          : c
-      )
-    );
-
-    // Sync to Blue Board
-    setUserSelections((prev) =>
-      prev.map((s) => {
-        if (s.position === position) {
-          if (newState === 'SEGURA') return { ...s, status: 'CONFIRMED_SAFE' };
-          if (newState === 'MINA') return { ...s, status: 'CONFIRMED_MINE' };
-          if (newState === 'OCULTA') return { ...s, status: 'UNSELECTED' };
-        }
-        return s;
-      })
-    );
-  };
-
-  // User manually updates Blue Board (Tracking manual selections in WIN10K)
-  const handleUserSelectionChange = (position: number, newStatus: UserSelectionState) => {
-    setUserSelections((prev) =>
-      prev.map((s) => (s.position === position ? { ...s, status: newStatus, updatedAt: new Date().toISOString() } : s))
-    );
-
-    // If confirmed as safe or mine on the blue board, also reflect on green board
-    if (newStatus === 'CONFIRMED_SAFE') {
-      setCells((prev) =>
-        prev.map((c) => (c.position === position ? { ...c, state: 'SEGURA', confirmedByUser: true } : c))
-      );
-    } else if (newStatus === 'CONFIRMED_MINE') {
-      setCells((prev) =>
-        prev.map((c) => (c.position === position ? { ...c, state: 'MINA', confirmedByUser: true } : c))
-      );
-    } else if (newStatus === 'UNSELECTED') {
-      setCells((prev) =>
-        prev.map((c) => (c.position === position ? { ...c, state: 'OCULTA', confirmedByUser: true } : c))
-      );
-    }
-  };
-
-  // Reset to Modo 1 (Nueva Partida)
-  const handleResetNewGame = () => {
-    soundFX.playTileClick();
-    setImageFile(null);
-    setImagePreview(null);
-    setOverallConfidence(null);
-    setQualityAssessment('');
-    setQualityNotes('');
-    setSaveSuccess(false);
-    setStorageNotice(null);
-    setAnalysisError(null);
-    setMismatchWarning(null);
-    setRecentChangesSummary(null);
-    setNewlyRevealedPositions([]);
-    setRoundHistory([]);
-    setInspectedPosition(null);
-    setAnalysisMode('MODE_1_NEW');
-    setGameStatus('ongoing');
-    setHasRecognizedCapture(false);
-    setInitialRecommendedPositions([]);
-    setShowResultsOverlay(false);
-
-    setCells(
-      Array.from({ length: 25 }, (_, i) => ({
-        position: i,
-        coordinate: `F${Math.floor(i / 5) + 1}-C${(i % 5) + 1}`,
-        row: Math.floor(i / 5),
-        column: i % 5,
-        state: 'OCULTA',
-        confidence: 1.0,
-        confirmedByUser: false,
-      }))
-    );
-
-    setUserSelections(
-      Array.from({ length: 25 }, (_, i) => ({
-        position: i,
-        coordinate: `F${Math.floor(i / 5) + 1}-C${(i % 5) + 1}`,
-        row: Math.floor(i / 5),
-        column: i % 5,
-        status: 'UNSELECTED',
-      }))
-    );
-
-    originalAiPredictionsRef.current = {};
-  };
-
-  // Restore past round step
-  const handleSelectHistoryStep = (step: RoundStep) => {
-    setCells(step.cells);
-    setNewlyRevealedPositions([]);
-    soundFX.playTileClick();
-  };
-
-  // Save reviewed game to real Firestore
-  const handleSaveGame = async () => {
+  // Save reviewed game record to Firestore
+  const handleSaveToFirestore = async () => {
+    if (!scanResult) return;
     setIsSaving(true);
-    setAnalysisError(null);
+    setError(null);
 
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        if (onLoginClick) {
-          onLoginClick();
-        }
-        setAnalysisError(
-          'Para respaldar partidas en Cloud Firestore, conecta tu cuenta de Google. Pulsa "Conectar Google Auth" para abrir el selector oficial.'
-        );
+        if (onLoginClick) onLoginClick();
+        setError('Inicia sesión con Google para guardar la partida en tu historial en la nube.');
         setIsSaving(false);
         return;
       }
 
-      if (saveSuccess) return;
+      const revealedTotal = scanResult.safe_count + scanResult.mine_count + scanResult.chest_count;
+      const gameId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-      const revealedSafe = cells.filter((c) => c.state === 'SEGURA').length;
-      const revealedMines = cells.filter((c) => c.state === 'MINA').length;
-      const revealedChests = cells.filter((c) => c.state === 'COFRE').length;
-      const revealedTotal = revealedSafe + revealedMines + revealedChests;
+      const cellDataFormatted = scanResult.cells.map((c) => ({
+        position: c.position,
+        coordinate: `F${c.row + 1}-C${c.column + 1}`,
+        row: c.row,
+        column: c.column,
+        state: c.state,
+        confidence: c.confidence,
+        confirmedByUser: true,
+        visualDescription: c.visual_description,
+      }));
 
-      const finalStatus = revealedMines > 0 ? 'lost' : revealedSafe >= 3 ? 'win' : gameStatus;
-      const gameId = `game_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-      setStorageNotice(
-        'Partida registrada en Cloud Firestore sin cargos de almacenamiento: la captura se procesó en memoria.'
-      );
-
-      const gamePayload: Omit<GameRecord, 'userId' | 'createdAt'> = {
+      const payload: Omit<GameRecord, 'userId' | 'createdAt'> = {
         gameId,
-        platform,
+        platform: 'WIN10K Mobile (Gemini Scan)',
         gameDate: new Date().toISOString(),
         boardSize: 5,
-        mineCount: 3,
-        gameStatus: finalStatus,
+        mineCount: scanResult.detected_mine_count || 3,
+        gameStatus: scanResult.detected_game_status === 'ready' ? 'ongoing' : (scanResult.detected_game_status as any),
         screenshotUrl: '',
         revealedCount: revealedTotal,
-        safeCount: revealedSafe,
-        mineCountRevealed: revealedMines,
-        chestCount: revealedChests,
-        cells,
+        safeCount: scanResult.safe_count,
+        mineCountRevealed: scanResult.mine_count,
+        chestCount: scanResult.chest_count,
+        cells: cellDataFormatted,
       };
 
-      const savedId = await saveGameRecord(gamePayload, cells);
-
-      if (Object.keys(originalAiPredictionsRef.current).length > 0) {
-        for (const cell of cells) {
-          const aiPred = originalAiPredictionsRef.current[cell.position];
-          if (aiPred) {
-            const isMatch = aiPred.state === cell.state;
-            await recordTrainingSample({
-              confirmedClass: cell.state,
-              modelPrediction: aiPred.state,
-              confidence: aiPred.confidence,
-              isCorrect: isMatch,
-              visualFeatures: cell.visualDescription || `Casilla ${cell.coordinate || '5x5'}`,
-            }).catch(() => {});
-          }
-        }
-      }
-
-      soundFX.playChestFanfare();
+      const savedId = await saveGameRecord(payload, cellDataFormatted);
       setSaveSuccess(true);
-      if (onGameSaved && savedId) {
-        onGameSaved(savedId);
-      }
-    } catch (err: unknown) {
-      console.warn('Aviso al guardar la partida:', err);
-      setAnalysisError(
-        err instanceof Error ? err.message : 'Error al guardar la partida en la base de datos.'
-      );
+      soundFX.playChestFanfare();
+      if (onGameSaved && savedId) onGameSaved(savedId);
+    } catch (err: any) {
+      console.warn('Error guardando partida:', err);
+      setError(err?.message || 'Error al registrar la partida en Firestore.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Inspect detail for clicked position
-  const inspectedCell = inspectedPosition !== null ? cells.find((c) => c.position === inspectedPosition) : null;
-  const inspectedSelection =
-    inspectedPosition !== null ? userSelections.find((s) => s.position === inspectedPosition) : null;
-  const inspectedHistorical =
-    inspectedPosition !== null ? empiricalStats.positions.find((p) => p.position === inspectedPosition) : null;
+  // Dynamic live count calculations during slow reveal
+  const liveSafeCount = Object.values(displayedCellsMap).filter((c) => c.state === 'SEGURA').length;
+  const liveMineCount = Object.values(displayedCellsMap).filter((c) => c.state === 'MINA').length;
+  const liveChestCount = Object.values(displayedCellsMap).filter((c) => c.state === 'COFRE').length;
+  const liveHiddenCount = 25 - (liveSafeCount + liveMineCount + liveChestCount);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Platform Separation & Independence Banner */}
+    <div className="max-w-4xl mx-auto space-y-6 pb-12 animate-in fade-in duration-300">
+      {/* 1. Header del Escáner Inteligente */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#09152b] via-[#081024] to-[#120a26] border border-cyan-500/30 p-5 sm:p-6 shadow-[0_15px_40px_rgba(0,0,0,0.85)]">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-cyan-950/80 border border-cyan-400/40 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
-              <ScannerIcon3D className="w-8 h-8" />
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-gradient-to-tr from-cyan-600 to-blue-600 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.4)] shrink-0">
+              <ScannerIcon3D className="w-8 h-8 text-white" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
-                  MINES AI — Analizador Visual Independiente WIN10K
+                  Escáner Inteligente Gemini
                 </h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/40">
-                  Dos Plataformas Separadas
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full font-mono font-black bg-cyan-500/20 text-cyan-300 border border-cyan-400/50">
+                  Apertura Secuencial Automática
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
-                <strong>Plataforma A (WIN10K):</strong> Donde juegas manualmente. &nbsp;|&nbsp;&nbsp;
-                <strong>Plataforma B (MINES AI):</strong> Tu asistente de análisis matemático. Nunca se conecta al casino ni apuesta automáticamente.
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                Sube 1 sola fotografía. Gemini investigará minuciosamente el tablero y abrirá automáticamente las casillas una por una con suspenso.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end lg:self-center shrink-0">
-            {hasRecognizedCapture && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowResultsOverlay(true);
-                    soundFX.playScanSweep();
-                  }}
-                  className="px-3.5 py-2 text-xs font-black rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)] transition active:scale-95 flex items-center gap-1.5 border border-cyan-400/60"
-                  title="Abrir pantalla flotante de resultados a pantalla completa"
-                >
-                  <ScannerIcon3D className="w-4 h-4" />
-                  <span>🚀 Pantalla Flotante</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    document.getElementById('mis-3-selecciones')?.scrollIntoView({ behavior: 'smooth' });
-                    soundFX.playTileClick();
-                  }}
-                  className="px-3.5 py-2 text-xs font-black rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] transition active:scale-95 flex items-center gap-1.5 border border-emerald-400/60"
-                >
-                  <span>🎯 MIS 3 SELECCIONES</span>
-                </button>
-              </>
-            )}
+          {scanResult && (
             <button
               type="button"
-              onClick={handleResetNewGame}
-              className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/80 transition active:scale-95"
+              onClick={handleReset}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition active:scale-95 shrink-0 shadow-md"
             >
-              Reiniciar Partida
+              🔄 Nueva Foto
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Mode Selector & Strategy Progress Banner */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        {/* Mode 1 vs Mode 2 Controller (6 cols) */}
-        <div className="lg:col-span-6 bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 shadow-2xl backdrop-blur-xl flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                <ScannerIcon3D className="w-4 h-4 text-cyan-400" />
-                <span>Flujo de Capturas WIN10K</span>
-              </span>
-              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-cyan-950 border border-cyan-400/50 text-cyan-300">
-                {analysisMode === 'MODE_1_NEW' ? 'Modo 1 Activo' : 'Modo 2 Activo'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setAnalysisMode('MODE_1_NEW');
-                  soundFX.playTileClick();
-                }}
-                className={`py-2.5 px-3 rounded-2xl text-xs font-bold transition flex flex-col items-center justify-center gap-1 border ${
-                  analysisMode === 'MODE_1_NEW'
-                    ? 'bg-gradient-to-r from-cyan-900/80 to-blue-900/80 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-                    : 'bg-[#11192e] border-slate-700/80 text-slate-400 hover:text-white'
-                }`}
-              >
-                <span className="font-mono text-[10px] uppercase text-cyan-300">Modo 1</span>
-                <span>Nueva Partida</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAnalysisMode('MODE_2_UPDATE');
-                  soundFX.playTileClick();
-                }}
-                className={`py-2.5 px-3 rounded-2xl text-xs font-bold transition flex flex-col items-center justify-center gap-1 border ${
-                  analysisMode === 'MODE_2_UPDATE'
-                    ? 'bg-gradient-to-r from-blue-900/80 to-indigo-900/80 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]'
-                    : 'bg-[#11192e] border-slate-700/80 text-slate-400 hover:text-white'
-                }`}
-              >
-                <span className="font-mono text-[10px] uppercase text-blue-300">Modo 2</span>
-                <span>Actualizar Partida</span>
-              </button>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            {analysisMode === 'MODE_1_NEW'
-              ? 'Sube la captura inicial de tu partida en WIN10K para reconocer la cuadrícula 5x5, confirmar las 3 minas e inicializar el análisis.'
-              : 'Sube la nueva captura tras pulsar casillas en WIN10K. Se comparará con el estado previo para identificar gemas descubiertas sin perder datos.'}
-          </p>
-        </div>
-
-        {/* Strategy Objective Tracker (6 cols) */}
-        <div className="lg:col-span-6 bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 shadow-2xl backdrop-blur-xl flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Win10kAuditIcon3D className="w-5 h-5" />
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                Estrategia Fija WIN10K (3 Minas · Objetivo 3 Seguras)
-              </h3>
-            </div>
-            <span className="text-xs font-mono font-black text-cyan-300 bg-cyan-950 px-2.5 py-0.5 rounded-lg border border-cyan-500/40">
-              {strategyState.progressFraction}
-            </span>
-          </div>
-
-          {/* 4-Step Progress Bar */}
-          <div>
-            <div className="flex justify-between items-center text-[10px] font-mono font-bold text-slate-400 mb-1">
-              <span className={safeCount >= 0 ? 'text-cyan-400' : ''}>0/3 Inicio</span>
-              <span className={safeCount >= 1 ? 'text-cyan-300' : ''}>1/3 Paso 1</span>
-              <span className={safeCount >= 2 ? 'text-cyan-200' : ''}>2/3 Paso 2</span>
-              <span className={safeCount >= 3 ? 'text-emerald-400' : ''}>3/3 Éxito</span>
-            </div>
-            <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  strategyState.isGameWon
-                    ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 shadow-[0_0_15px_#10b981]'
-                    : strategyState.isGameLost
-                    ? 'bg-gradient-to-r from-red-600 to-rose-700 shadow-[0_0_15px_#ef4444]'
-                    : 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 shadow-[0_0_10px_#06b6d4]'
-                }`}
-                style={{ width: `${Math.max(5, strategyState.progressPercent)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Quick Odds Bar */}
-          <div className="grid grid-cols-3 gap-2 text-center font-mono text-[11px]">
-            <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-slate-400 block text-[10px]">Prob. Segura:</span>
-              <span className="font-bold text-cyan-300">
-                {(strategyState.nextSafeProbability * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-slate-400 block text-[10px]">Prob. Mina:</span>
-              <span className="font-bold text-rose-400">
-                {(strategyState.nextMineProbability * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-slate-400 block text-[10px]">Multiplicador:</span>
-              <span className="font-bold text-emerald-400">
-                ~{strategyState.estimatedMultiplier.toFixed(2)}x
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Upload Zone & Scan Trigger */}
-      <div className="bg-[#0b1020]/90 border border-[#1e2a4a] rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <ScannerIcon3D className="w-5 h-5" />
-              <span>
-                {analysisMode === 'MODE_1_NEW'
-                  ? 'Paso 1: Cargar Captura Inicial de WIN10K'
-                  : 'Paso 2: Cargar Nueva Captura para Actualizar'}
-              </span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Sube la imagen tomada de tu pantalla de WIN10K (cuadrícula 5×5).
-            </p>
-          </div>
-
-          {roundHistory.length > 0 && (
-            <span className="text-xs font-mono px-3 py-1 rounded-xl bg-indigo-950/80 text-indigo-300 border border-indigo-500/40">
-              Historial de Ronda: {roundHistory.length} capturas analizadas
-            </span>
           )}
         </div>
+      </div>
 
-        <div
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onClick={() => fileInputRef.current?.click()}
-          className={`
-            relative border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all duration-200 overflow-hidden group
-            ${
-              imagePreview
-                ? 'border-cyan-500/50 bg-[#091222]/80 hover:border-cyan-400'
-                : 'border-slate-700/80 hover:border-cyan-500/70 bg-[#060a14]/60'
-            }
-          `}
-        >
+      {/* 2. Sección: Subir / Seleccionar UNA Fotografía */}
+      {!scanResult && (
+        <div className="rounded-3xl bg-[#0b1224]/90 border border-[#1e2d52] p-5 sm:p-6 shadow-2xl backdrop-blur-xl space-y-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <span>Paso 1: Selecciona o toma UNA fotografía</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Carga la captura de tu juego en WIN10K (cuadrícula 5×5)
+              </p>
+            </div>
+            {selectedFile && (
+              <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">
+                ✓ Imagen Cargada
+              </span>
+            )}
+          </div>
+
+          {/* Hidden File Input */}
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            onChange={handleFileChange}
+            onChange={handleFileInputChange}
             className="hidden"
           />
 
-          {imagePreview ? (
-            <div className="space-y-3">
-              <div className="relative max-h-56 overflow-hidden rounded-xl border border-slate-700/80 mx-auto bg-black">
-                <img
-                  src={imagePreview}
-                  alt="Captura WIN10K"
-                  className="w-full h-full object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]"
-                />
-                {isAnalyzing && (
-                  <div className="absolute inset-0 bg-cyan-950/70 backdrop-blur-xs flex flex-col items-center justify-center p-4">
-                    <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_15px_#22d3ee] animate-pulse top-1/2 -translate-y-1/2" />
-                    <div className="w-12 h-12 rounded-2xl bg-cyan-900/80 border border-cyan-400 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(6,182,212,0.5)]">
-                      <ScannerIcon3D className="w-7 h-7 animate-spin" />
+          {/* Dropzone / Preview Area */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onClick={() => fileInputRef.current?.click()}
+            className={`
+              relative border-2 border-dashed rounded-3xl p-5 sm:p-6 text-center cursor-pointer transition-all duration-200 overflow-hidden group
+              ${
+                imagePreview
+                  ? 'border-cyan-500/60 bg-[#071020]/90 hover:border-cyan-400 shadow-[inset_0_0_20px_rgba(6,182,212,0.1)]'
+                  : 'border-slate-700/80 hover:border-cyan-500/70 bg-[#060a16]/70'
+              }
+            `}
+          >
+            {imagePreview ? (
+              <div className="space-y-4">
+                <div className="relative max-h-72 overflow-hidden rounded-2xl border border-cyan-500/30 mx-auto bg-black shadow-xl">
+                  <img
+                    src={imagePreview}
+                    alt="Fotografía a escanear"
+                    className="w-full h-full max-h-72 object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]"
+                  />
+
+                  {/* Active Scanning Animation Overlay */}
+                  {isAnalyzing && (
+                    <div className="absolute inset-0 bg-[#040814]/85 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+                      {/* Laser Scan Line */}
+                      <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_20px_#22d3ee] animate-scan-line pointer-events-none" />
+
+                      <div className="w-14 h-14 rounded-2xl bg-cyan-950/90 border-2 border-cyan-400 flex items-center justify-center mb-3 shadow-[0_0_25px_rgba(6,182,212,0.6)] animate-pulse">
+                        <ScannerIcon3D className="w-8 h-8 text-cyan-300" />
+                      </div>
+
+                      <span className="text-xs sm:text-sm font-black text-white tracking-wide font-mono text-center max-w-xs">
+                        {progressLabel}
+                      </span>
+
+                      {/* Progress Bar */}
+                      <div className="w-56 h-2 bg-slate-900 rounded-full overflow-hidden mt-3 border border-cyan-500/40 p-0.5">
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 rounded-full transition-all duration-300"
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-cyan-300 mt-1">
+                        {progressPercent}%
+                      </span>
                     </div>
-                    <span className="text-xs font-bold text-white tracking-wider font-mono">
-                      {analysisStepLabel}
-                    </span>
-                    <div className="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-3 border border-slate-700">
-                      <div
-                        className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500 transition-all duration-300"
-                        style={{ width: `${analysisProgress}%` }}
-                      />
-                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-cyan-400">Archivo:</span>
+                    <span className="font-mono text-slate-200">{fileDetails?.name || 'captura.png'}</span>
+                    {fileDetails && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        ({fileDetails.width}x{fileDetails.height} · {fileDetails.sizeKb} KB)
+                      </span>
+                    )}
                   </div>
-                )}
+                  <span className="text-cyan-300 hover:text-white underline font-semibold text-[11px]">
+                    Cambiar fotografía
+                  </span>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400 font-medium">
-                Haz clic o arrastra para cambiar la captura de esta ronda
-              </p>
+            ) : (
+              <div className="py-8 space-y-3">
+                <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-cyan-950 to-blue-950 border border-cyan-500/40 flex items-center justify-center mx-auto shadow-xl group-hover:scale-105 transition-transform">
+                  <ScannerIcon3D className="w-8 h-8 text-cyan-400" />
+                </div>
+                <div>
+                  <p className="text-sm sm:text-base font-bold text-slate-200">
+                    Arrastra aquí tu fotografía o pulsa para seleccionarla
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Admite capturas de pantalla de móvil (iPhone/Android) o cámara
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quick 1-Click Samples for Easy Authentic Testing */}
+          <div className="p-3.5 rounded-2xl bg-[#071328] border border-cyan-500/30 space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              <span className="flex items-center gap-1.5 text-cyan-300">
+                <span>💡</span>
+                <span>O prueba instantáneamente con capturas reales de WIN10K:</span>
+              </span>
             </div>
-          ) : (
-            <div className="py-7 space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-950 to-indigo-950 border border-cyan-500/30 flex items-center justify-center mx-auto shadow-lg group-hover:scale-105 transition-transform">
-                <ScannerIcon3D className="w-6 h-6 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-200">
-                  Arrastra tu captura de WIN10K aquí
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Admite capturas de móvil (iPhone/Android) o capturas de navegador PC
-                </p>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleLoadSample('/assets/aistudio/IMG_7795_9e7da139.png', 'captura_partida_con_monedas_y_minas.png')}
+                className="p-2.5 rounded-xl bg-[#0c1f3d] hover:bg-[#132d57] border border-[#23497d] text-left text-xs font-bold text-cyan-200 flex items-center justify-between transition active:scale-95 shadow-md"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📸</span>
+                  <div>
+                    <div className="text-white text-xs font-bold">Partida con Monedas y Minas</div>
+                    <div className="text-[10px] text-slate-400">22 monedas, 3 minas, 1 cofre</div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold">
+                  Cargar
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleLoadSample('/assets/aistudio/IMG_7799_e9109cce.png', 'captura_tablero_cerrado_inicial.png')}
+                className="p-2.5 rounded-xl bg-[#0c1f3d] hover:bg-[#132d57] border border-[#23497d] text-left text-xs font-bold text-cyan-200 flex items-center justify-between transition active:scale-95 shadow-md"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📸</span>
+                  <div>
+                    <div className="text-white text-xs font-bold">Tablero Inicial Cerrado</div>
+                    <div className="text-[10px] text-slate-400">25 casillas cerradas (3 minas)</div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold">
+                  Cargar
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-3.5 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-rose-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+              <span className="w-5 h-5 rounded-full bg-rose-900 border border-rose-400 text-rose-200 flex items-center justify-center font-black shrink-0">
+                !
+              </span>
+              <span className="leading-relaxed">{error}</span>
             </div>
           )}
-        </div>
 
-        {/* Sample Image Quick Test Helper for Testing Real Initial Flow */}
-        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-[#081224] border border-cyan-500/30 text-xs">
-          <div className="flex items-center gap-2 text-slate-300">
-            <span className="text-cyan-400 font-bold">💡 Prueba en 1 clic:</span>
-            <span className="text-[11px] text-slate-300">
-              Carga una captura inicial auténtica de WIN10K (25 casillas cerradas) para verificar el flujo de Modo 1.
-            </span>
-          </div>
+          {/* Step 3: Main Big Button: ESCANEAR IMAGEN */}
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleLoadSampleInitialCapture();
-            }}
-            className="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r from-cyan-900 to-blue-900 hover:from-cyan-800 hover:to-blue-800 border border-cyan-400/50 text-cyan-200 transition flex items-center gap-1.5 active:scale-95 shadow-md"
-          >
-            <ScannerIcon3D className="w-3.5 h-3.5" />
-            <span>Cargar Captura de Prueba WIN10K (Modo 1)</span>
-          </button>
-        </div>
-
-        {/* Scan Button Trigger */}
-        {imagePreview && (
-          <button
-            type="button"
-            disabled={isAnalyzing}
-            onClick={handleAnalyze}
-            className="mt-4 w-full py-3 px-4 rounded-2xl font-bold text-sm bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-[0_10px_25px_rgba(6,182,212,0.35)] active:scale-[0.98] transition disabled:opacity-50 flex items-center justify-center gap-2.5"
+            disabled={isAnalyzing || !imagePreview}
+            onClick={handleStartScan}
+            className={`
+              w-full py-4 px-6 rounded-2xl font-black text-sm tracking-wide flex items-center justify-center gap-3 transition-all duration-200 shadow-xl
+              ${
+                isAnalyzing || !imagePreview
+                  ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
+                  : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-[0_10px_30px_rgba(6,182,212,0.4)] active:scale-[0.98] border border-cyan-300/40'
+              }
+            `}
           >
             {isAnalyzing ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Analizando Cuadrícula 5x5 con Gemini...</span>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Investigando imagen con Gemini Visión...</span>
               </>
             ) : (
               <>
-                <ScannerIcon3D className="w-5 h-5 shrink-0" />
-                <span>
-                  {analysisMode === 'MODE_1_NEW'
-                    ? 'Escanear Tablero Inicial (Modo 1)'
-                    : 'Actualizar y Comparar con Estado Previo (Modo 2)'}
-                </span>
+                <ScannerIcon3D className="w-6 h-6 shrink-0" />
+                <span>ESCANEAR IMAGEN CON GEMINI</span>
               </>
             )}
           </button>
-        )}
-
-        {/* Error or Warnings */}
-        {analysisError && (
-          <div className="mt-4 p-3.5 bg-rose-950/70 border border-rose-500/50 rounded-2xl text-rose-300 text-xs flex items-center gap-2.5">
-            <span className="font-bold text-base shrink-0">!</span>
-            <span>{analysisError}</span>
-          </div>
-        )}
-
-        {mismatchWarning && (
-          <div className="mt-4 p-3.5 bg-amber-950/70 border border-amber-500/50 rounded-2xl text-amber-200 text-xs flex items-center justify-between gap-2">
-            <span>{mismatchWarning}</span>
-            <button
-              type="button"
-              onClick={handleResetNewGame}
-              className="px-3 py-1 rounded-xl bg-amber-800 text-white font-bold shrink-0 hover:bg-amber-700 transition"
-            >
-              Iniciar como Nueva Partida
-            </button>
-          </div>
-        )}
-
-        {recentChangesSummary && (
-          <div className="mt-4 p-3 rounded-2xl bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 text-xs flex items-center gap-2 animate-in fade-in duration-200">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
-            <span>{recentChangesSummary}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Game State Banner (Victory / Defeat / Ongoing) */}
-      {strategyState.isGameWon && (
-        <div className="p-4 rounded-3xl bg-emerald-950/80 border border-emerald-500/60 text-emerald-200 shadow-[0_0_30px_rgba(16,185,129,0.3)] animate-pulse flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <TrophyGold3D className="w-8 h-8 shrink-0" />
-            <div>
-              <h3 className="text-sm font-black text-emerald-300">
-                ¡OBJETIVO DE 3 CASILLAS COMPLETADO CON ÉXITO! (3/3)
-              </h3>
-              <p className="text-xs opacity-90 mt-0.5">
-                Has alcanzado las 3 gemas requeridas sin minas. <strong>Retirada / Cashout recomendada de inmediato en WIN10K (~1.48x)</strong> para consolidar ganancias.
-              </p>
-            </div>
-          </div>
-          <span className="text-xs font-mono font-bold px-3 py-1 rounded-xl bg-emerald-900 border border-emerald-400 text-emerald-200 shrink-0">
-            Retirada Ganadora
-          </span>
         </div>
       )}
 
-      {strategyState.isGameLost && (
-        <div className="p-4 rounded-3xl bg-red-950/80 border border-red-500/60 text-red-200 shadow-[0_0_30px_rgba(239,68,68,0.3)] flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Mine3D className="w-8 h-8 shrink-0" />
-            <div>
-              <h3 className="text-sm font-black text-red-300">
-                PARTIDA PERDIDA (MINA DETONADA)
-              </h3>
-              <p className="text-xs opacity-90 mt-0.5">
-                Se ha descubierto una mina en el tablero. La partida finaliza en derrota. Pulsa "Reiniciar Partida" arriba para comenzar la siguiente ronda de 3 casillas.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleResetNewGame}
-            className="px-3 py-1.5 rounded-xl bg-red-900 hover:bg-red-800 text-white font-bold text-xs shrink-0 transition"
-          >
-            Nueva Partida
-          </button>
-        </div>
-      )}
-
-      {/* =============================================================== */}
-      {/* SECCIÓN OBLIGATORIA: MIS 3 SELECCIONES (LISTAS PARA WIN10K)     */}
-      {/* =============================================================== */}
-      {hasRecognizedCapture && top3RecommendedDetails.length > 0 ? (
-        <div id="mis-3-selecciones" className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#071328] via-[#091b36] to-[#0c142c] border-2 border-emerald-400 p-5 sm:p-6 shadow-[0_15px_45px_rgba(16,185,129,0.25)] space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-500/30">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-slate-950 font-black text-lg flex items-center justify-center shadow-[0_0_18px_#10b981] shrink-0">
-                3
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-white tracking-wide">
-                    MIS 3 SELECCIONES
-                  </h2>
-                  <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-emerald-950 border border-emerald-400 text-emerald-300">
-                    LISTAS PARA CONSULTAR EN WIN10K
-                  </span>
+      {/* 3. RESULTADOS DEL ANÁLISIS DE GEMINI (CON APERTURA SECUENCIAL AUTOMÁTICA LENTA) */}
+      {scanResult && (
+        <div className="space-y-6 animate-in zoom-in-95 fade-in duration-300">
+          {/* Header de Resultados */}
+          <div className="rounded-3xl bg-[#09152b] border-2 border-cyan-500/50 p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-cyan-500/25">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center font-black text-slate-950 text-sm shadow-[0_0_20px_#10b981]">
+                  ✓
                 </div>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Consulta estas 3 posiciones manualmente en tu pantalla de WIN10K. Registra los resultados reales aquí para actualizar tu progreso.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/80 px-3 py-1 rounded-xl border border-cyan-500/40">
-                Objetivo Fijo: 3 Casillas Seguras
-              </span>
-            </div>
-          </div>
-
-          {/* 3 Detailed Cards for the 3 Recommendations */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {top3RecommendedDetails.map((rec) => {
-              const isInspected = inspectedPosition === rec.position;
-              return (
-                <div
-                  key={rec.position}
-                  onClick={() => setInspectedPosition(rec.position)}
-                  className={`relative rounded-2xl p-4 transition-all border flex flex-col justify-between cursor-pointer ${
-                    isInspected
-                      ? 'bg-[#0c2419] border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)] ring-1 ring-emerald-400'
-                      : 'bg-[#091526]/90 border-slate-700/80 hover:border-emerald-500/70 hover:bg-[#0c1a2e]'
-                  }`}
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-full bg-emerald-500 text-slate-950 font-black text-sm flex items-center justify-center shadow-[0_0_10px_#10b981]">
-                          {rec.number}
-                        </span>
-                        <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider font-mono">
-                          Opción #{rec.number}
-                        </span>
-                      </div>
-
-                      {/* Status Badge in WIN10K */}
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md">
-                        {rec.userStatus === 'CONFIRMED_SAFE' && (
-                          <span className="bg-emerald-950 border border-emerald-400 text-emerald-300 px-1.5 py-0.5 rounded">
-                            💎 Confirmada Segura
-                          </span>
-                        )}
-                        {rec.userStatus === 'CONFIRMED_MINE' && (
-                          <span className="bg-red-950 border border-red-500 text-red-300 px-1.5 py-0.5 rounded">
-                            💣 Mina Confirmada
-                          </span>
-                        )}
-                        {rec.userStatus === 'PENDING' && (
-                          <span className="bg-amber-950 border border-amber-400 text-amber-300 px-1.5 py-0.5 rounded animate-pulse">
-                            ⏳ Pendiente en WIN10K
-                          </span>
-                        )}
-                        {rec.userStatus === 'UNSELECTED' && (
-                          <span className="bg-blue-950 border border-blue-400 text-blue-300 px-1.5 py-0.5 rounded">
-                            Por consultar
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    {/* Coordinates & Row/Column Breakdown */}
-                    <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-xs font-mono font-bold text-slate-400">Coordenada:</span>
-                        <span className="text-xl font-black text-white font-mono text-cyan-300">
-                          {rec.coordinate}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-200 mt-1 font-semibold flex items-center justify-between border-t border-slate-800/80 pt-1.5">
-                        <span>Fila {rec.row}</span>
-                        <span>Columna {rec.column}</span>
-                      </div>
-                      <p className="text-[11px] text-emerald-400 font-medium mt-1">
-                        📍 {rec.rowDescription} · {rec.colDescription}
-                      </p>
-                    </div>
-
-                    {/* Uniform Probability statement */}
-                    <div className="text-[11px] text-slate-300 space-y-0.5">
-                      <span className="text-slate-400 text-[10px] block">Probabilidad Matemática:</span>
-                      <span className="font-mono font-bold text-emerald-300">88.0% segura</span>
-                      <span className="text-[10px] text-slate-400 block">
-                        (Idéntica a todas las casillas ocultas: 22/25)
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Quick-action result registration buttons */}
-                  <div className="mt-4 pt-3 border-t border-slate-800 space-y-1.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                      Registrar resultado en WIN10K:
-                    </span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUserSelectionChange(rec.position, 'PENDING');
-                        }}
-                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
-                          rec.userStatus === 'PENDING'
-                            ? 'bg-amber-500 text-black border-amber-300'
-                            : 'bg-amber-950/60 hover:bg-amber-900/80 border-amber-500/40 text-amber-200'
-                        }`}
-                        title="Marcar como seleccionada pendiente de confirmar"
-                      >
-                        ⏳ Pendiente
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUserSelectionChange(rec.position, 'CONFIRMED_SAFE');
-                        }}
-                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
-                          rec.userStatus === 'CONFIRMED_SAFE'
-                            ? 'bg-emerald-500 text-black border-emerald-300'
-                            : 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-500/40 text-emerald-200'
-                        }`}
-                        title="Marcar como gema confirmada (+1 acierto)"
-                      >
-                        💎 Segura
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUserSelectionChange(rec.position, 'CONFIRMED_MINE');
-                        }}
-                        className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition ${
-                          rec.userStatus === 'CONFIRMED_MINE'
-                            ? 'bg-red-500 text-black border-red-300'
-                            : 'bg-red-950/60 hover:bg-red-900/80 border-red-500/40 text-red-200'
-                        }`}
-                        title="Marcar como mina detonada"
-                      >
-                        💣 Mina
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Mathematical Transparency & Disclaimer (Requirements 9 & 10) */}
-          <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 leading-relaxed space-y-1">
-            <p>
-              <strong>Transparencia Matemática WIN10K (Regla de Oro):</strong> En una partida con 3 minas y 25 casillas ocultas, todas las 25 casillas comparten con exactitud la misma probabilidad teórica: <strong>88.0% segura (22/25)</strong> y <strong>12.0% mina (3/25)</strong>. MINES AI no inventa probabilidades distintas entre casillas ocultas; las tres opciones recomendadas representan un orden estructurado de exploración basado en distribución histórica y balance espacial.
-            </p>
-            <p className="text-slate-400 text-[10px]">
-              <strong>Aviso de Responsabilidad:</strong> MINES AI no afirma que estas tres posiciones sean ganadoras ni garantiza que estén libres de minas. El juego WIN10K opera con un sistema criptográfico aleatorio Provably Fair (HMAC-SHA256). Juega con moderación.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="p-5 rounded-3xl bg-[#091326]/90 border border-cyan-500/30 text-center space-y-2.5 shadow-xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950 border border-cyan-500/40 text-cyan-300 text-xs font-bold font-mono">
-            <ScannerIcon3D className="w-4 h-4 text-cyan-400" />
-            <span>Paso 1: Carga y Reconocimiento Inicial Requerido</span>
-          </div>
-          <h3 className="text-sm sm:text-base font-bold text-white">
-            Tableros en espera de la captura inicial de WIN10K
-          </h3>
-          <p className="text-xs text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Sube tu captura de pantalla de WIN10K (con las 25 casillas ocultas y 3 minas) o presiona <strong>"Cargar Captura de Prueba WIN10K"</strong> arriba y haz clic en <strong>"Escanear Tablero Inicial (Modo 1)"</strong>. Al ser reconocida, se desplegará automáticamente la sección <strong>"MIS 3 SELECCIONES"</strong> con las coordenadas exactas de las 3 posiciones sugeridas y se activarán ambos tableros interactivos.
-          </p>
-        </div>
-      )}
-
-      {/* Board View Switcher Buttons */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-black text-white">Visualización de Tableros</h2>
-          <span className="text-xs text-slate-400">Coordenadas fijas F1-C1 a F5-C5</span>
-        </div>
-
-        <div className="flex items-center gap-1.5 bg-[#0e1629] p-1 rounded-2xl border border-slate-800">
-          <button
-            type="button"
-            onClick={() => setBoardViewMode('BOTH')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold transition ${
-              boardViewMode === 'BOTH'
-                ? 'bg-cyan-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Ambos Tableros
-          </button>
-          <button
-            type="button"
-            onClick={() => setBoardViewMode('GREEN')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              boardViewMode === 'GREEN'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Tablero Verde (Análisis)
-          </button>
-          <button
-            type="button"
-            onClick={() => setBoardViewMode('BLUE')}
-            className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              boardViewMode === 'BLUE'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-blue-400" />
-            Tablero Azul (Selecciones)
-          </button>
-        </div>
-      </div>
-
-      {/* Main Boards Display Grid */}
-      <div
-        className={`grid gap-6 items-start ${
-          boardViewMode === 'BOTH' ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1 max-w-3xl mx-auto'
-        }`}
-      >
-        {/* =============================================================== */}
-        {/* SECCIÓN 4: TABLERO VERDE — PANEL DE ANÁLISIS Y PROBABILIDADES */}
-        {/* =============================================================== */}
-        {(boardViewMode === 'BOTH' || boardViewMode === 'GREEN') && (
-          <div className="bg-[#0b1020]/90 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl flex flex-col items-center">
-            {/* Header */}
-            <div className="w-full flex items-center justify-between mb-4 pb-3 border-b border-emerald-950/80">
-              <div className="flex items-center gap-2.5">
-                <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#10b981]" />
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-white">
-                    Tablero Verde — Panel de Análisis
-                  </h3>
-                  <p className="text-[11px] text-emerald-300/80 font-mono">
-                    Probabilidades hipergeométricas exactas y casillas confirmadas
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                      {isOpeningSequentially ? 'ABRIENDO CASILLAS AUTOMÁTICAMENTE...' : 'ESCANEO COMPLETADO'}
+                    </span>
+                    {scanResult.model_used && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold">
+                        {scanResult.model_used}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-base sm:text-lg font-black text-white tracking-wide mt-1">
+                    {isOpeningSequentially ? 'Revelando Casillas Detectadas con la IA' : 'Resultados de la Fotografía Analizada'}
+                  </h2>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-emerald-950 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold">
-                  <Gem3D className="w-3.5 h-3.5" />
-                  {safeCount}/3
-                </span>
-                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-red-950 border border-red-500/50 text-red-300 text-xs font-mono font-bold">
-                  <Mine3D className="w-3.5 h-3.5" />
-                  {mineCountRevealed}/3
-                </span>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs shadow-md active:scale-95 transition"
+                >
+                  📷 Escanear otra foto
+                </button>
               </div>
             </div>
 
-            {/* Green Board */}
-            <Board5x5
-              cells={cells}
-              onCellClick={handleGreenCellClick}
-              onCellStateChange={handleGreenCellStateChange}
-              newlyRevealedPositions={newlyRevealedPositions}
-              cellRanks={cellRanksMap}
-              recommendedPositions={recommendedPositions}
-              showRankBadges={true}
-              showCoordinates={true}
-              showConfidence={true}
-              boardVariant="green"
-              hiddenSafeProbability={strategyState.nextSafeProbability}
-              highlightPosition={inspectedPosition}
-              hasRecognizedCapture={hasRecognizedCapture}
-              size="lg"
-            />
-
-            {/* Exact Coordinates for Top 3 Recommended Positions (Requirement 3) */}
-            {hasRecognizedCapture && top3RecommendedDetails.length > 0 && (
-              <div className="w-full mt-4 p-4 rounded-2xl bg-emerald-950/70 border border-emerald-400/60 shadow-lg space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                    <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider">
-                      Coordenadas Exactas de las 3 Posiciones Sugeridas:
-                    </h4>
+            {/* Banner Dinámico de Progreso de Apertura Automática */}
+            {isOpeningSequentially && (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950 via-[#451a03] to-[#290e02] border-2 border-yellow-400/90 shadow-[0_0_25px_rgba(250,204,21,0.4)] text-yellow-200 flex flex-wrap items-center justify-between gap-3 animate-pulse">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-yellow-400 text-slate-950 font-black flex items-center justify-center text-xs shadow-lg">
+                    {openingProgress?.current || 1}
                   </div>
-                  <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-900/80 px-2.5 py-0.5 rounded-md border border-emerald-500/50">
-                    88.0% Prob. Segura
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                  {top3RecommendedDetails.map((rec) => (
-                    <div
-                      key={rec.position}
-                      onClick={() => setInspectedPosition(rec.position)}
-                      className={`p-2.5 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
-                        inspectedPosition === rec.position
-                          ? 'bg-[#0f2c1b] border-emerald-400 shadow-[0_0_12px_#10b981]'
-                          : 'bg-[#06180f] border-emerald-500/40 hover:border-emerald-400'
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm flex items-center justify-center shrink-0 shadow-[0_0_10px_#10b981]">
-                        {rec.number}
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-emerald-400 block">
-                          Posición #{rec.number}
-                        </span>
-                        <span className="text-sm font-black text-white font-mono">
-                          {rec.coordinate}
-                        </span>
-                        <p className="text-[10px] text-slate-300 font-sans">
-                          <strong>Fila {rec.row}</strong> · <strong>Columna {rec.column}</strong>
-                        </p>
-                      </div>
+                  <div>
+                    <div className="text-xs font-black text-white">
+                      Abriendo casillas una por una ({openingProgress?.current} de {openingProgress?.total})
                     </div>
-                  ))}
+                    <div className="text-[11px] text-yellow-300 font-mono">
+                      Revelando casilla en coordenada {openingProgress?.currentCoord}...
+                    </div>
+                  </div>
                 </div>
 
-                <p className="text-[11px] text-slate-300 pt-1 leading-relaxed">
-                  <strong>Guía de cuadrícula WIN10K:</strong> Fila 1 = Fila superior (arriba), Fila 5 = Fila inferior (abajo). Columna 1 = Columna izquierda, Columna 5 = Columna derecha.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => handleSkipAnimation(scanResult.cells)}
+                  className="px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs shadow active:scale-95 transition shrink-0"
+                >
+                  ⚡ Mostrar Todo (Saltar)
+                </button>
               </div>
             )}
 
-            {/* Mathematical Transparency Clarification */}
-            <div className="w-full mt-4 p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 text-xs leading-relaxed space-y-1">
-              <div className="flex items-center justify-between font-bold text-emerald-300">
-                <span>Transparencia Matemática WIN10K</span>
-                <span className="font-mono">{(strategyState.nextSafeProbability * 100).toFixed(1)}% segura</span>
+            {/* Banner de Estado Detectado cuando termina */}
+            {!isOpeningSequentially && scanResult.detected_game_status === 'win' && (
+              <div className="p-3.5 rounded-2xl bg-emerald-950/90 border border-emerald-400 text-emerald-200 flex items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.3)]">
+                <div className="flex items-center gap-2.5">
+                  <TrophyGold3D className="w-7 h-7 shrink-0" />
+                  <span className="text-xs font-black">
+                    ¡PARTIDA COBRADA / VICTORIA DETECTADA! Se abrieron todas las casillas seguras sin detonaciones.
+                  </span>
+                </div>
               </div>
-              <p className="text-[11px] opacity-90">
-                Matemáticamente, todas las casillas ocultas comparten la misma probabilidad teórica en esta ronda. No existe ventaja matemática previa en ninguna casilla oculta.
+            )}
+
+            {!isOpeningSequentially && scanResult.detected_game_status === 'lost' && (
+              <div className="p-3.5 rounded-2xl bg-red-950/90 border border-red-500 text-red-200 flex items-center justify-between gap-3 shadow-[0_0_25px_rgba(239,68,68,0.3)]">
+                <div className="flex items-center gap-2.5">
+                  <Mine3D className="w-7 h-7 shrink-0" />
+                  <span className="text-xs font-black">
+                    MINA DETONADA DETECTADA: Se visualiza una o más bombas activadas que provocaron la pérdida de la ronda.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!isOpeningSequentially && scanResult.detected_game_status === 'ready' && (
+              <div className="p-3.5 rounded-2xl bg-blue-950/80 border border-cyan-400/50 text-cyan-200 flex items-center gap-2.5 text-xs font-bold">
+                <span className="text-lg">🎯</span>
+                <span>
+                  TABLERO INICIAL LIMPIO: Todas las casillas están cerradas y listas para jugar.
+                </span>
+              </div>
+            )}
+
+            {/* 4 Métricas Clave Identificadas (Actualizadas en vivo a medida que se abren las casillas) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center font-mono">
+              <div className="p-3 rounded-2xl bg-[#061022] border border-[#1b3a6b]">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] uppercase font-bold">
+                  <Gem3D className="w-3.5 h-3.5" />
+                  <span>Monedas / Seguras</span>
+                </div>
+                <div className="text-lg sm:text-xl font-black text-emerald-300 mt-1">
+                  {isOpeningSequentially ? liveSafeCount : scanResult.safe_count}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#061022] border border-[#1b3a6b]">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] uppercase font-bold">
+                  <Mine3D className="w-3.5 h-3.5" />
+                  <span>Minas Detectadas</span>
+                </div>
+                <div className="text-lg sm:text-xl font-black text-rose-400 mt-1">
+                  {isOpeningSequentially ? liveMineCount : scanResult.mine_count}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#061022] border border-[#1b3a6b]">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] uppercase font-bold">
+                  <Chest3D className="w-3.5 h-3.5" />
+                  <span>Cofres de Tesoro</span>
+                </div>
+                <div className="text-lg sm:text-xl font-black text-amber-300 mt-1">
+                  {isOpeningSequentially ? liveChestCount : scanResult.chest_count}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#061022] border border-[#1b3a6b]">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] uppercase font-bold">
+                  <span>🔒</span>
+                  <span>Casillas Ocultas</span>
+                </div>
+                <div className="text-lg sm:text-xl font-black text-cyan-300 mt-1">
+                  {isOpeningSequentially ? liveHiddenCount : scanResult.hidden_count}
+                </div>
+              </div>
+            </div>
+
+            {/* Detalles Detectados de la Interfaz (Apuesta, Multiplicador, Saldo) */}
+            {(scanResult.bet_amount_detected || scanResult.multiplier_detected || scanResult.balance_detected || scanResult.detected_mine_count) && (
+              <div className="p-3 rounded-2xl bg-[#071328] border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-bold">Configuración:</span>
+                  <span className="font-mono font-black text-cyan-300">
+                    {scanResult.detected_mine_count || 3} Minas
+                  </span>
+                </div>
+
+                {scanResult.bet_amount_detected && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Apuesta:</span>
+                    <span className="font-mono font-black text-white">
+                      {scanResult.bet_amount_detected}
+                    </span>
+                  </div>
+                )}
+
+                {scanResult.multiplier_detected && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Multiplicador:</span>
+                    <span className="font-mono font-black text-yellow-400">
+                      {scanResult.multiplier_detected}
+                    </span>
+                  </div>
+                )}
+
+                {scanResult.balance_detected && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-bold">Saldo:</span>
+                    <span className="font-mono font-black text-emerald-400">
+                      {scanResult.balance_detected}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TABLERO VISUAL 5×5 CON ANIMACIÓN DE APERTURA CASILLA POR CASILLA */}
+            <div className="flex flex-col items-center justify-center pt-2">
+              <div className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wider flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${isOpeningSequentially ? 'bg-yellow-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`} />
+                <span>
+                  {isOpeningSequentially
+                    ? 'Apertura automática en curso casilla por casilla...'
+                    : 'Cuadrícula 5×5 Identificada por Gemini (Coordenadas F1-C1 a F5-C5)'}
+                </span>
+              </div>
+
+              <div className="p-3 sm:p-4 rounded-3xl bg-gradient-to-b from-[#0c2417]/95 via-[#06170e]/95 to-[#030d07] border border-[#065f46] shadow-[0_20px_50px_rgba(0,0,0,0.85)] max-w-sm w-full">
+                <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                  {scanResult.cells.map((originalCell) => {
+                    const cell = displayedCellsMap[originalCell.position] || originalCell;
+                    const coord = `F${cell.row + 1}-C${cell.column + 1}`;
+                    const isCurrentlyOpening = currentlyOpeningPos === cell.position;
+                    let bgStyle = '';
+
+                    if (cell.state === 'SEGURA') {
+                      bgStyle =
+                        'bg-gradient-to-b from-emerald-900/80 via-[#064e3b]/95 to-[#022c22] border-emerald-400 text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.4)]';
+                    } else if (cell.state === 'MINA') {
+                      bgStyle =
+                        'bg-gradient-to-b from-red-950/90 via-[#450a0a]/95 to-[#1c0404] border-red-500 text-red-100 shadow-[0_0_20px_rgba(239,68,68,0.5)]';
+                    } else if (cell.state === 'COFRE') {
+                      bgStyle =
+                        'bg-gradient-to-b from-amber-900/85 via-[#78350f]/90 to-[#3b1704] border-amber-400 text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.5)]';
+                    } else if (cell.state === 'DESCONOCIDA') {
+                      bgStyle =
+                        'bg-slate-900/90 border-slate-700 text-slate-400';
+                    } else {
+                      // OCULTA
+                      bgStyle =
+                        'bg-gradient-to-b from-[#0f291e] via-[#091b13] to-[#04100b] border-[#164e37]/90 text-slate-400';
+                    }
+
+                    return (
+                      <div
+                        key={cell.position}
+                        className={`
+                          relative aspect-square rounded-2xl border flex flex-col items-center justify-center p-1 transition-all duration-200
+                          ${bgStyle}
+                          ${isCurrentlyOpening ? 'scale-110 ring-4 ring-yellow-400 shadow-[0_0_30px_#facc15] z-30 animate-pulse' : ''}
+                        `}
+                        title={`Coordenada ${coord} (Fila ${cell.row + 1}, Columna ${cell.column + 1}): ${cell.visual_description || cell.state}`}
+                      >
+                        <span className="absolute top-1 left-1.5 text-[8px] font-mono font-bold text-slate-400">
+                          {coord}
+                        </span>
+
+                        <div className="flex items-center justify-center w-full h-full">
+                          {cell.state === 'SEGURA' && (
+                            <div className="w-full h-full flex items-center justify-center animate-in zoom-in duration-200">
+                              <StarCoin3D className="w-[82%] h-[82%] drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
+                            </div>
+                          )}
+                          {cell.state === 'MINA' && (
+                            <div className="w-full h-full flex items-center justify-center animate-in zoom-in duration-200">
+                              <Win10kBomb3D className="w-[82%] h-[82%] drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]" />
+                            </div>
+                          )}
+                          {cell.state === 'COFRE' && (
+                            <div className="w-full h-full flex items-center justify-center animate-in zoom-in duration-200">
+                              <Win10kChest3D className="w-[85%] h-[85%] drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
+                            </div>
+                          )}
+                          {cell.state === 'DESCONOCIDA' && (
+                            <TileUnknown3D className="w-[80%] h-[80%] opacity-80" />
+                          )}
+                          {cell.state === 'OCULTA' && (
+                            <Win10kClosedTile className="w-[80%] h-[80%] opacity-70" />
+                          )}
+                        </div>
+
+                        {cell.state === 'OCULTA' && (
+                          <span className="absolute bottom-1 text-[7px] font-mono text-cyan-300/80">
+                            Cerrada
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Diagnóstico Textual Detallado de Gemini */}
+            <div className="p-4 rounded-2xl bg-[#081326] border border-cyan-500/30 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                  <span>🤖</span>
+                  <span>Diagnóstico Visual de Gemini:</span>
+                </span>
+                <span className="text-[10px] font-mono font-bold text-slate-400">
+                  Calidad: <span className="text-white">{scanResult.quality_assessment}</span> | Confianza: <span className="text-emerald-400">{Math.round(scanResult.overall_confidence * 100)}%</span>
+                </span>
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed">
+                {scanResult.quality_notes}
               </p>
-            </div>
-          </div>
-        )}
-
-        {/* =============================================================== */}
-        {/* SECCIÓN 5: TABLERO AZUL — SEGUIMIENTO DE SELECCIONES EN WIN10K */}
-        {/* =============================================================== */}
-        {(boardViewMode === 'BOTH' || boardViewMode === 'BLUE') && (
-          <div className="bg-[#0b1020]/90 border border-blue-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl flex flex-col items-center">
-            {/* Header */}
-            <div className="w-full flex items-center justify-between mb-4 pb-3 border-b border-blue-950/80">
-              <div className="flex items-center gap-2.5">
-                <div className="w-3.5 h-3.5 rounded-full bg-blue-400 shadow-[0_0_10px_#3b82f6]" />
-                <div>
-                  <h3 className="text-sm sm:text-base font-black text-white">
-                    Tablero Azul — Seguimiento WIN10K
-                  </h3>
-                  <p className="text-[11px] text-blue-300/80 font-mono">
-                    Registra tus selecciones manuales y sincroniza resultados
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-lg bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[11px] font-mono font-bold">
-                  {pendingCount} Pend
-                </span>
-                <span className="px-2 py-0.5 rounded-lg bg-blue-950/80 border border-blue-500/40 text-blue-300 text-[11px] font-mono font-bold">
-                  {unselectedCount} Libres
-                </span>
-              </div>
-            </div>
-
-            {/* Blue Board */}
-            <UserSelectionBoard
-              selections={userSelections}
-              onSelectionChange={handleUserSelectionChange}
-              highlightPosition={inspectedPosition}
-              recommendedPositions={recommendedPositions}
-              size="lg"
-            />
-
-            {/* Legend for 4 States of the Blue Board */}
-            <div className="w-full mt-4 p-3 rounded-2xl bg-blue-950/40 border border-blue-500/30 text-xs">
-              <div className="text-blue-300 font-bold mb-1.5 flex items-center justify-between text-[11px]">
-                <span>Leyenda de Estados del Tablero Azul:</span>
-                <span className="text-[10px] text-slate-400">Pulsa cualquier casilla para cambiar estado</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono">
-                <div className="flex items-center gap-1.5 text-blue-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                  <span>Azul: Sin seleccionar</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-amber-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                  <span>Amarillo: Pendiente</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-emerald-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                  <span>Verde: Confirmada segura</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-red-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-                  <span>Rojo: Mina confirmada</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Inspected Cell Detail Inspector (if user clicked any tile) */}
-      {inspectedCell && (
-        <div className="p-5 rounded-3xl bg-[#0e1629] border border-cyan-500/40 shadow-2xl animate-in fade-in duration-150">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-cyan-950 border border-cyan-400 flex items-center justify-center font-mono font-black text-cyan-300 text-sm shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                {inspectedCell.coordinate}
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">
-                  Inspector de Casilla {inspectedCell.coordinate}
-                </h4>
-                <p className="text-[11px] text-slate-400 font-mono">
-                  Fila {inspectedCell.row + 1}, Columna {inspectedCell.column + 1} · Posición #{inspectedCell.position}
+              {scanResult.pattern_notes && (
+                <p className="text-[11px] text-cyan-200/90 leading-relaxed pt-1 border-t border-slate-800">
+                  <strong>Patrones y Disposición:</strong> {scanResult.pattern_notes}
                 </p>
+              )}
+            </div>
+
+            {/* Transparencia Criptográfica & Anti-Simulación */}
+            <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 leading-relaxed space-y-1">
+              <div className="font-bold text-white flex items-center gap-1.5">
+                <span>🛡️</span>
+                <span>Transparencia Criptográfica WIN10K (Provably Fair HMAC-SHA256):</span>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono text-slate-300">
-                Tablero Verde: <strong>{inspectedCell.state}</strong>
-              </span>
-              <span className="text-xs px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono text-slate-300">
-                Tablero Azul: <strong>{inspectedSelection?.status || 'UNSELECTED'}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => setInspectedPosition(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-xs ml-2"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 text-xs font-mono">
-            <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
-              <span className="text-slate-400 text-[10px] block">Probabilidad Matemática Pura:</span>
-              <span className="text-base font-bold text-cyan-300">
-                {(strategyState.nextSafeProbability * 100).toFixed(1)}% Segura
-              </span>
-              <p className="text-[10px] text-slate-500 mt-1 font-sans">
-                Idéntica a todas las casillas ocultas en esta ronda.
+              <p>
+                La IA Gemini investiga minuciosamente todo lo visible en tu fotografía y abre secuencialmente las casillas identificadas con suspenso. No inventa casillas ni repite resultados de partidas pasadas.
               </p>
             </div>
 
-            <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
-              <span className="text-slate-400 text-[10px] block">Historial en tus Partidas:</span>
-              <span className="text-base font-bold text-emerald-400">
-                {inspectedHistorical
-                  ? `${(inspectedHistorical.safeRate * 100).toFixed(1)}% segura`
-                  : 'Sin datos previos'}
-              </span>
-              <p className="text-[10px] text-slate-500 mt-1 font-sans">
-                {inspectedHistorical
-                  ? `${inspectedHistorical.totalGamesExamined} veces examinada (Descriptivo)`
-                  : 'Aún no se ha registrado en partidas anteriores.'}
-              </p>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <span className="text-slate-400 text-[10px] block">Acción Manual Sugerida:</span>
-                <span className="text-xs font-bold text-slate-200">
-                  {inspectedCell.state === 'SEGURA'
-                    ? 'Gema confirmada en WIN10K'
-                    : inspectedCell.state === 'MINA'
-                    ? 'Mina detonada'
-                    : 'Casilla oculta disponible'}
-                </span>
-              </div>
-              <span className="text-[10px] text-cyan-400/90 font-sans mt-1">
-                Haz clic en el Tablero Azul para marcarla si la pulsaste en WIN10K.
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sequence of Round Steps */}
-      {roundHistory.length > 1 && (
-        <div className="p-5 rounded-3xl bg-[#0b1020]/90 border border-[#1e2a4a] text-xs space-y-3">
-          <div className="flex items-center justify-between text-slate-300 font-bold">
-            <span>Historial de Actualizaciones de esta Ronda:</span>
-            <span className="text-[11px] font-mono text-slate-500">
-              {roundHistory.length} pasos registrados
-            </span>
-          </div>
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {roundHistory.map((step, idx) => (
+            {/* Botones de Acción */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
               <button
-                key={idx}
                 type="button"
-                onClick={() => handleSelectHistoryStep(step)}
-                className="px-3 py-1.5 rounded-xl text-xs font-mono font-semibold bg-[#131b31] border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white transition shrink-0 flex items-center gap-2"
+                onClick={handleReset}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition active:scale-95 shadow-md flex items-center gap-2"
               >
-                <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300 text-[10px] flex items-center justify-center font-bold">
-                  {step.stepNumber}
-                </span>
-                <span>{step.label}</span>
-                <span className="text-slate-500 text-[10px]">{step.revealedCount} rev</span>
+                <span>🔄 Escanear Otra Fotografía</span>
               </button>
-            ))}
+
+              <button
+                type="button"
+                disabled={isSaving || saveSuccess || isOpeningSequentially}
+                onClick={handleSaveToFirestore}
+                className={`
+                  px-4 py-2.5 rounded-xl font-black text-xs transition active:scale-95 shadow-md flex items-center gap-2
+                  ${
+                    saveSuccess
+                      ? 'bg-emerald-900 text-emerald-200 border border-emerald-500/50 cursor-default'
+                      : isOpeningSequentially
+                      ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  }
+                `}
+              >
+                {isSaving ? (
+                  <span>Guardando en la nube...</span>
+                ) : saveSuccess ? (
+                  <span>✓ Partida Respaldada en Firestore</span>
+                ) : (
+                  <span>💾 Guardar Partida en Historial</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Save Button to Cloud Firestore */}
-      <div className="p-5 sm:p-6 rounded-3xl bg-[#0b1020]/90 border border-[#1e2a4a] shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <ValidationIcon3D className="w-5 h-5" />
-            <span>Guardar Resultados Reales en Cloud Firestore</span>
-          </h4>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Almacena los resultados confirmados de ambos tableros para alimentar tus estadísticas descriptivas reales.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={handleSaveGame}
-          className="w-full sm:w-auto px-6 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 active:scale-[0.98] text-white shadow-[0_10px_30px_rgba(16,185,129,0.35)] transition disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
-        >
-          {isSaving ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>Guardando en Firestore...</span>
-            </>
-          ) : (
-            <>
-              <ValidationIcon3D className="w-4 h-4 shrink-0" />
-              <span>{saveSuccess ? 'Partida Guardada ✓' : 'Guardar Partida Verificada'}</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {saveSuccess && (
-        <div className="p-3.5 bg-emerald-950/70 border border-emerald-500/50 rounded-2xl text-emerald-300 text-xs flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <ValidationIcon3D className="w-4 h-4 shrink-0" />
-            Partida y casillas guardadas con éxito en Cloud Firestore.
-          </span>
-          <span className="font-bold text-emerald-200 font-mono">Sincronizado</span>
-        </div>
-      )}
-
-      {storageNotice && (
-        <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-amber-300 text-xs flex items-start gap-2">
-          <span className="font-bold shrink-0">ℹ</span>
-          <span className="leading-relaxed">{storageNotice}</span>
-        </div>
-      )}
-
-      {/* PANTALLA FLOTANTE DE RESULTADOS A PANTALLA COMPLETA */}
-      <ScanResultsOverlay
-        isOpen={showResultsOverlay}
-        onClose={() => setShowResultsOverlay(false)}
-        cells={cells}
-        userSelections={userSelections}
-        recommendedPositions={recommendedPositions}
-        onUserSelectionChange={handleUserSelectionChange}
-        analysisMode={analysisMode}
-        gameStatus={gameStatus}
-        safeCount={safeCount}
-        mineCountRevealed={mineCountRevealed}
-        nextSafeProbability={strategyState.nextSafeProbability}
-        estimatedMultiplier={strategyState.estimatedMultiplier}
-        onViewFullBoards={() => {
-          setShowResultsOverlay(false);
-          setBoardViewMode('BOTH');
-          setTimeout(() => {
-            document.getElementById('mis-3-selecciones')?.scrollIntoView({ behavior: 'smooth' });
-          }, 150);
-        }}
-        onUpdateCapture={() => {
-          setShowResultsOverlay(false);
-          setAnalysisMode('MODE_2_UPDATE');
-          setTimeout(() => {
-            fileInputRef.current?.click();
-          }, 150);
-        }}
-        onNewGame={() => {
-          setShowResultsOverlay(false);
-          handleResetNewGame();
-        }}
-        qualityAssessment={qualityAssessment}
-        qualityNotes={qualityNotes}
-        overallConfidence={overallConfidence}
-        newlyRevealedPositions={newlyRevealedPositions}
-      />
     </div>
   );
 };

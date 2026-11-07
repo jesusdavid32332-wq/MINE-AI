@@ -8,14 +8,16 @@ interface ValidationViewProps {
 }
 
 export const ValidationView: React.FC<ValidationViewProps> = ({
-  samples,
+  samples = [],
   threshold = 0.7,
 }) => {
   let correctCount = 0;
   let incorrectCount = 0;
   let rejectedCount = 0;
 
-  for (const s of samples) {
+  const sampleList = Array.isArray(samples) ? samples : [];
+
+  for (const s of sampleList) {
     if (s.confidence < threshold) {
       rejectedCount++;
     } else if (s.isCorrect) {

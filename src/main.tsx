@@ -62,13 +62,30 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const rootEl = document.getElementById('root');
-if (rootEl) {
-  createRoot(rootEl).render(
-    <React.StrictMode>
-      <RootErrorBoundary>
-        <App />
-      </RootErrorBoundary>
-    </React.StrictMode>
-  );
+try {
+  const rootEl = document.getElementById('root');
+  if (rootEl) {
+    createRoot(rootEl).render(
+      <React.StrictMode>
+        <RootErrorBoundary>
+          <App />
+        </RootErrorBoundary>
+      </React.StrictMode>
+    );
+  }
+} catch (fatalErr: any) {
+  console.error('Fatal initialization error:', fatalErr);
+  const rootEl = document.getElementById('root');
+  if (rootEl) {
+    rootEl.innerHTML = `
+      <div style="min-height: 100vh; background-color: #060913; display: flex; align-items: center; justify-content: center; color: #f1f5f9; font-family: sans-serif; padding: 24px; text-align: center;">
+        <div style="margin: auto; max-width: 400px; background: #0c1428; border: 1px solid #1e3a6d; border-radius: 24px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+          <div style="width: 48px; height: 48px; border-radius: 16px; background: linear-gradient(135deg, #06b6d4, #6366f1); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: #fff;">M·AI</div>
+          <h2 style="font-size: 16px; font-weight: 900; margin: 0 0 8px; color: #ffffff;">MINES AI PRO</h2>
+          <p style="font-size: 12px; color: #94a3b8; margin: 0 0 16px; line-height: 1.5;">Ocurrió un error al cargar. Pulsa el botón para recargar la aplicación limpiamente:</p>
+          <button onclick="window.location.reload()" style="background: linear-gradient(to right, #06b6d4, #2563eb); color: white; border: none; padding: 10px 24px; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; box-shadow: 0 4px 15px rgba(6,182,212,0.4);">Recargar Aplicación</button>
+        </div>
+      </div>
+    `;
+  }
 }
