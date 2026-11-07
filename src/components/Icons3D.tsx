@@ -778,3 +778,292 @@ export const SoundOff3D: React.FC<Icon3DProps> = ({ className = 'w-5 h-5', size 
     <line x1="28" y1="12" x2="20" y2="20" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" />
   </svg>
 );
+
+// 17. AUTHENTIC WIN10K GOLD STAR COIN (Exact match to IMG_7795)
+export const StarCoin3D: React.FC<Icon3DProps> = ({ className = 'w-10 h-10', size }) => (
+  <svg
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={size ? { width: size, height: size } : undefined}
+  >
+    <defs>
+      {/* Outer gold rim gradient with 3D tilt */}
+      <linearGradient id="w10kCoinRim" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#fef08a" />
+        <stop offset="0.25" stopColor="#facc15" />
+        <stop offset="0.6" stopColor="#eab308" />
+        <stop offset="0.85" stopColor="#ca8a04" />
+        <stop offset="1" stopColor="#854d0e" />
+      </linearGradient>
+      {/* Beveled coin thickness */}
+      <linearGradient id="w10kCoinSide" x1="6" y1="32" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#b45309" />
+        <stop offset="0.5" stopColor="#78350f" />
+        <stop offset="1" stopColor="#451a03" />
+      </linearGradient>
+      {/* Inner gold face */}
+      <radialGradient id="w10kCoinFace" cx="30" cy="28" r="22" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#fef08a" />
+        <stop offset="0.4" stopColor="#fde047" />
+        <stop offset="0.8" stopColor="#eab308" />
+        <stop offset="1" stopColor="#ca8a04" />
+      </radialGradient>
+      {/* Star gradient with bevel */}
+      <linearGradient id="w10kStarGrad" x1="24" y1="18" x2="40" y2="44" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#ffffff" />
+        <stop offset="0.3" stopColor="#fef08a" />
+        <stop offset="0.8" stopColor="#facc15" />
+        <stop offset="1" stopColor="#d97706" />
+      </linearGradient>
+      <filter id="w10kCoinShadow" x="4" y="6" width="56" height="56" filterUnits="userSpaceOnUse">
+        <feDropShadow dx="0" dy="4" stdDeviation="3" floodColor="#000000" floodOpacity="0.5" />
+      </filter>
+    </defs>
+    <g filter="url(#w10kCoinShadow)">
+      {/* 3D Coin Side Thickness / Bevel */}
+      <ellipse cx="32" cy="34" rx="24" ry="21" fill="url(#w10kCoinSide)" />
+      {/* Outer Golden Rim */}
+      <ellipse cx="32" cy="31" rx="24" ry="21" fill="url(#w10kCoinRim)" stroke="#fef9c3" strokeWidth="1" />
+      {/* Inner Recessed Face */}
+      <ellipse cx="32" cy="31" rx="19.5" ry="17" fill="url(#w10kCoinFace)" stroke="#ca8a04" strokeWidth="1.2" />
+      {/* High-Relief 5-Pointed Star */}
+      <g transform="translate(32, 31) rotate(-5) scale(0.95, 0.85) translate(-32, -31)">
+        {/* Star Drop Shadow */}
+        <path
+          d="M32 18L35.5 26.5L44.5 27.5L37.8 33.5L39.8 42.5L32 38L24.2 42.5L26.2 33.5L19.5 27.5L28.5 26.5L32 18Z"
+          fill="#92400e"
+          transform="translate(0, 1.8)"
+        />
+        {/* Main 3D Star */}
+        <path
+          d="M32 18L35.5 26.5L44.5 27.5L37.8 33.5L39.8 42.5L32 38L24.2 42.5L26.2 33.5L19.5 27.5L28.5 26.5L32 18Z"
+          fill="url(#w10kStarGrad)"
+          stroke="#fef08a"
+          strokeWidth="0.8"
+        />
+        {/* Star Center Facet Beveling Lines */}
+        <line x1="32" y1="18" x2="32" y2="33" stroke="#ffffff" strokeWidth="0.75" strokeOpacity="0.8" />
+        <line x1="44.5" y1="27.5" x2="32" y2="33" stroke="#ca8a04" strokeWidth="0.75" />
+        <line x1="39.8" y1="42.5" x2="32" y2="33" stroke="#b45309" strokeWidth="0.75" />
+        <line x1="24.2" y1="42.5" x2="32" y2="33" stroke="#d97706" strokeWidth="0.75" />
+        <line x1="19.5" y1="27.5" x2="32" y2="33" stroke="#ffffff" strokeWidth="0.75" strokeOpacity="0.8" />
+      </g>
+      {/* Specular Highlight Crescent */}
+      <path
+        d="M17 22C20 16 30 14 42 18"
+        stroke="#ffffff"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeOpacity="0.75"
+      />
+    </g>
+  </svg>
+);
+
+// 18. AUTHENTIC WIN10K SPHERICAL BOMB WITH SPARK (Exact match to IMG_7795)
+export const Win10kBomb3D: React.FC<Icon3DProps> = ({ className = 'w-10 h-10', size }) => (
+  <svg
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={size ? { width: size, height: size } : undefined}
+  >
+    <defs>
+      {/* Bomb body gradient - dark indigo/navy with soft purple specular sheen */}
+      <radialGradient id="w10kBombBody" cx="26" cy="28" r="22" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#6366f1" stopOpacity="0.85" />
+        <stop offset="0.25" stopColor="#3b4269" />
+        <stop offset="0.65" stopColor="#1e223d" />
+        <stop offset="0.95" stopColor="#0d1021" />
+        <stop offset="1" stopColor="#050711" />
+      </radialGradient>
+      {/* Neck cylinder gradient */}
+      <linearGradient id="w10kNeckGrad" x1="28" y1="14" x2="36" y2="20" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#64748b" />
+        <stop offset="0.5" stopColor="#475569" />
+        <stop offset="1" stopColor="#1e293b" />
+      </linearGradient>
+      {/* Fuse rope */}
+      <linearGradient id="w10kFuseGrad" x1="33" y1="8" x2="44" y2="15" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#f1f5f9" />
+        <stop offset="0.5" stopColor="#cbd5e1" />
+        <stop offset="1" stopColor="#64748b" />
+      </linearGradient>
+      {/* Fuse spark flame */}
+      <radialGradient id="w10kSparkGlow" cx="44" cy="9" r="8" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#ffffff" />
+        <stop offset="0.3" stopColor="#f43f5e" />
+        <stop offset="0.7" stopColor="#e11d48" stopOpacity="0.8" />
+        <stop offset="1" stopColor="#9f1239" stopOpacity="0" />
+      </radialGradient>
+      <filter id="w10kBombShadow" x="8" y="8" width="48" height="52" filterUnits="userSpaceOnUse">
+        <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#000000" floodOpacity="0.65" />
+      </filter>
+    </defs>
+    <g filter="url(#w10kBombShadow)">
+      {/* Curved Fuse Rope */}
+      <path
+        d="M32 17C33 13 36 10 42 10"
+        stroke="url(#w10kFuseGrad)"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+      />
+      {/* Spark Star & Flare at end of fuse */}
+      <circle cx="43" cy="9" r="6" fill="url(#w10kSparkGlow)" />
+      {/* Starburst sparks */}
+      <path
+        d="M43 4L44 8L48 9L44 10L43 14L42 10L38 9L42 8L43 4Z"
+        fill="#ffffff"
+      />
+      <circle cx="43" cy="9" r="2" fill="#fff" />
+      <circle cx="47" cy="6" r="0.8" fill="#fda4af" />
+      <circle cx="39" cy="12" r="0.8" fill="#fda4af" />
+
+      {/* Bomb Cap / Neck Collar */}
+      <rect x="28" y="15" width="8" height="4.5" rx="1.5" fill="url(#w10kNeckGrad)" stroke="#94a3b8" strokeWidth="0.6" />
+
+      {/* Main Spherical Bomb Body */}
+      <circle cx="32" cy="36" r="20" fill="url(#w10kBombBody)" stroke="#475569" strokeWidth="0.8" />
+
+      {/* Ambient Top Light Reflection */}
+      <path
+        d="M23 25C26 21 34 21 38 24"
+        stroke="#a5b4fc"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeOpacity="0.6"
+      />
+      <ellipse cx="25" cy="27" rx="3.5" ry="2" transform="rotate(-35 25 27)" fill="#ffffff" fillOpacity="0.45" />
+    </g>
+  </svg>
+);
+
+// 19. AUTHENTIC WIN10K UNREVEALED TILE (Exact match to IMG_7799)
+export const Win10kClosedTile: React.FC<Icon3DProps> = ({ className = 'w-10 h-10', size }) => (
+  <svg
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={size ? { width: size, height: size } : undefined}
+  >
+    <defs>
+      {/* Outer rounded tile background */}
+      <linearGradient id="w10kTileBase" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#1e3e7b" />
+        <stop offset="0.5" stopColor="#153268" />
+        <stop offset="1" stopColor="#0e234e" />
+      </linearGradient>
+      {/* Center recessed circular button */}
+      <radialGradient id="w10kTileCenter" cx="32" cy="32" r="14" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#1a3971" />
+        <stop offset="0.7" stopColor="#132c5b" />
+        <stop offset="1" stopColor="#0c1f44" />
+      </radialGradient>
+      {/* Top bevel highlight */}
+      <linearGradient id="w10kTileBevel" x1="12" y1="8" x2="52" y2="8" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#3b69b5" stopOpacity="0.9" />
+        <stop offset="0.5" stopColor="#6095ea" stopOpacity="0.7" />
+        <stop offset="1" stopColor="#3b69b5" stopOpacity="0.9" />
+      </linearGradient>
+    </defs>
+    {/* Outer Rounded Tile */}
+    <rect
+      x="4"
+      y="4"
+      width="56"
+      height="56"
+      rx="12"
+      fill="url(#w10kTileBase)"
+      stroke="#22478a"
+      strokeWidth="1.4"
+    />
+    {/* Top Rim Specular Glint */}
+    <line
+      x1="14"
+      y1="6"
+      x2="50"
+      y2="6"
+      stroke="url(#w10kTileBevel)"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    {/* Center Circular Embossed Button */}
+    <circle
+      cx="32"
+      cy="32"
+      r="10.5"
+      fill="url(#w10kTileCenter)"
+      stroke="#1f4482"
+      strokeWidth="1.2"
+    />
+    {/* Center Dot Soft Shadow Inset */}
+    <circle
+      cx="32"
+      cy="32.5"
+      r="6.5"
+      fill="#102550"
+      fillOpacity="0.7"
+    />
+  </svg>
+);
+
+// 20. AUTHENTIC WIN10K JACKPOT CHEST (Exact match to IMG_7795)
+export const Win10kChest3D: React.FC<Icon3DProps> = ({ className = 'w-10 h-10', size }) => (
+  <svg
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={size ? { width: size, height: size } : undefined}
+  >
+    <defs>
+      <radialGradient id="w10kChestAura" cx="32" cy="28" r="26" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#f59e0b" stopOpacity="0.65" />
+        <stop offset="0.7" stopColor="#f59e0b" stopOpacity="0.15" />
+        <stop offset="1" stopColor="#f59e0b" stopOpacity="0" />
+      </radialGradient>
+      <linearGradient id="w10kChestBody" x1="12" y1="26" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#dc2626" />
+        <stop offset="0.5" stopColor="#b91c1c" />
+        <stop offset="1" stopColor="#7f1d1d" />
+      </linearGradient>
+      <linearGradient id="w10kChestGold" x1="12" y1="16" x2="52" y2="48" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#fef08a" />
+        <stop offset="0.4" stopColor="#facc15" />
+        <stop offset="0.8" stopColor="#eab308" />
+        <stop offset="1" stopColor="#854d0e" />
+      </linearGradient>
+    </defs>
+    <circle cx="32" cy="30" r="24" fill="url(#w10kChestAura)" />
+    {/* Chest Body */}
+    <rect x="12" y="30" width="40" height="22" rx="4" fill="url(#w10kChestBody)" stroke="url(#w10kChestGold)" strokeWidth="1.8" />
+    {/* Chest Open Lid Behind */}
+    <path
+      d="M10 28C12 16 22 12 32 12C42 12 52 16 54 28H10Z"
+      fill="url(#w10kChestBody)"
+      stroke="url(#w10kChestGold)"
+      strokeWidth="1.8"
+    />
+    {/* Golden Coins Overflow Inside */}
+    <ellipse cx="32" cy="29" rx="17" ry="5.5" fill="#facc15" />
+    <circle cx="26" cy="28" r="3" fill="#fef08a" stroke="#ca8a04" strokeWidth="0.8" />
+    <circle cx="33" cy="27" r="3.2" fill="#fde047" stroke="#ca8a04" strokeWidth="0.8" />
+    <circle cx="39" cy="28" r="3" fill="#facc15" stroke="#ca8a04" strokeWidth="0.8" />
+    <circle cx="29" cy="30" r="2.5" fill="#fef08a" />
+    <circle cx="35" cy="30" r="2.5" fill="#fde047" />
+    {/* Gold Vertical Straps */}
+    <rect x="18" y="30" width="5" height="22" fill="url(#w10kChestGold)" />
+    <rect x="41" y="30" width="5" height="22" fill="url(#w10kChestGold)" />
+    {/* Golden Lock Clasp */}
+    <rect x="28" y="30" width="8" height="9" rx="2" fill="url(#w10kChestGold)" stroke="#fef08a" strokeWidth="0.8" />
+    <circle cx="32" cy="34" r="1.5" fill="#451a03" />
+    {/* Sparkles */}
+    <path d="M22 20L23 23L26 24L23 25L22 28L21 25L18 24L21 23L22 20Z" fill="#ffffff" />
+    <path d="M42 18L43 20L45 21L43 22L42 24L41 22L39 21L41 20L42 18Z" fill="#ffffff" />
+  </svg>
+);
+

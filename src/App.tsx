@@ -12,6 +12,7 @@ import {
   subscribeToTrainingSamples,
   getUserSettings
 } from './services/firestoreService';
+import { Win10kGameView } from './components/Win10kGameView';
 import { GameRecord, TrainingSample, AppSettings } from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
@@ -29,7 +30,8 @@ import { checkRedirectResult, syncUserProfile, AuthErrorInfo } from './services/
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [currentTab, setCurrentTab] = useState<string>('game');
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -137,115 +139,201 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black relative overflow-x-hidden">
-      {/* Subtle ambient lighting pools */}
-      <div className="fixed top-0 left-1/4 w-[600px] h-[600px] bg-cyan-600/5 rounded-full blur-[140px] pointer-events-none" />
-      <div className="fixed top-1/3 right-10 w-[500px] h-[500px] bg-violet-600/5 rounded-full blur-[140px] pointer-events-none" />
-
-      {/* Top Header & Mobile Navigation */}
-      <Navbar
-        currentTab={currentTab}
-        onSelectTab={(tab) => setCurrentTab(tab)}
-        isOnline={isOnline}
-        userEmail={user?.email || (user?.isAnonymous ? 'Invitado' : null)}
-        onLoginClick={handleLoginClick}
-      />
-
-      {/* Guest Mode VIP sync notice banner if not logged in */}
-      {!user && (
-        <div className="bg-gradient-to-r from-[#0c1428] via-[#090d18] to-[#120d24] border-b border-cyan-500/20 px-4 py-2.5 text-xs relative z-30">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-            <span className="flex items-center gap-2.5 text-slate-300">
-              <Gem3D className="w-4 h-4 shrink-0" />
-              <span>
-                <strong>Modo Vista Previa Activo:</strong> Conecta tu cuenta de Google para respaldar tus partidas en Cloud Firestore y sincronizar estadísticas entre dispositivos.
-              </span>
-            </span>
+    <div className="min-h-screen bg-[#081a3a] text-slate-100 flex flex-col selection:bg-yellow-400 selection:text-black relative overflow-x-hidden">
+      {/* If in main WIN10K Game tab: show the authentic casino screen */}
+      {currentTab === 'game' ? (
+        <Win10kGameView
+          games={games}
+          onOpenScanner={() => setCurrentTab('analyzer')}
+          onOpenMenu={(tab) => {
+            if (tab === 'menu') setIsMenuOpen(true);
+            else setCurrentTab(tab);
+          }}
+          onLoginClick={handleLoginClick}
+          userEmail={user?.email}
+        />
+      ) : (
+        /* Secondary Analysis / Management Views with Return Navigation */
+        <div className="min-h-screen bg-[#060913] flex flex-col">
+          {/* Quick Return to Game Header */}
+          <div className="bg-[#0b1428] border-b border-cyan-500/30 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 shadow-lg">
             <button
               type="button"
-              onClick={handleLoginClick}
-              className="px-4 py-1.5 rounded-xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-md shadow-cyan-600/25 active:scale-95 transition shrink-0 flex items-center gap-1.5"
+              onClick={() => {
+                soundFX.playTileClick();
+                setCurrentTab('game');
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md active:scale-95 transition"
             >
-              <UserVipIcon3D className="w-4 h-4" />
-              Conectar Google Auth
+              <span>← Volver al Juego WIN10K</span>
             </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMenuOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-[#132247] border border-[#2a4380] text-cyan-200 font-bold text-xs flex items-center gap-1.5"
+              >
+                <span>Menú</span>
+                <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
+
+          <Navbar
+            currentTab={currentTab}
+            onSelectTab={(tab) => setCurrentTab(tab)}
+            isOnline={isOnline}
+            userEmail={user?.email || (user?.isAnonymous ? 'Invitado' : null)}
+            onLoginClick={handleLoginClick}
+          />
+
+          <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full pb-28 lg:pb-12 relative z-20">
+            {currentTab === 'dashboard' && (
+              <DashboardView
+                games={games}
+                trainingSamples={trainingSamples}
+                onNavigate={(tab) => setCurrentTab(tab)}
+                userEmail={user?.email}
+              />
+            )}
+
+            {currentTab === 'analyzer' && (
+              <AnalyzerView
+                onGameSaved={() => {
+                  setCurrentTab('history');
+                }}
+                initialMinesCount={3}
+                games={games}
+                onLoginClick={handleLoginClick}
+              />
+            )}
+
+            {currentTab === 'probability' && (
+              <ProbabilityView games={games} initialMinesCount={3} />
+            )}
+
+            {currentTab === 'heatmaps' && (
+              <HeatmapsView
+                games={games}
+                trainingSamples={trainingSamples}
+                recognitionThreshold={settings?.recognitionThreshold ?? 0.7}
+              />
+            )}
+
+            {currentTab === 'history' && <HistoryView games={games} />}
+
+            {currentTab === 'validation' && (
+              <ValidationView
+                samples={trainingSamples}
+                threshold={settings?.recognitionThreshold ?? 0.7}
+              />
+            )}
+
+            {currentTab === 'win10k' && <Win10kAuditView />}
+
+            {currentTab === 'settings' && (
+              <SettingsView
+                settings={settings}
+                onSettingsUpdated={(newSettings) => setSettings(newSettings)}
+                userEmail={user?.email}
+                onLoginClick={handleLoginClick}
+              />
+            )}
+          </main>
         </div>
       )}
 
-      {/* Auth Feedback Notice if Popup is Blocked or Domain is Restricted */}
-      {authNotice && (
-        <div className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/80 border-b border-amber-500/30 px-4 py-2.5 text-xs relative z-30">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-amber-200">
-            <span className="flex items-center gap-2">
-              <span className="font-bold">Aviso:</span>
-              <span>{authNotice}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setAuthNotice(null)}
-              className="text-amber-400 hover:text-white font-bold px-2 py-0.5 rounded transition"
-            >
-              ✕
-            </button>
+      {/* Slide-out Menu Drawer for Quick Access */}
+      {isMenuOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMenuOpen(false)}
+          />
+
+          <div className="relative ml-auto w-full max-w-xs bg-[#0a1835] border-l border-cyan-500/30 text-white p-5 flex flex-col justify-between shadow-2xl z-50 animate-in slide-in-from-right duration-200">
+            <div className="space-y-5">
+              <div className="flex items-center justify-between border-b border-[#1b356b] pb-4">
+                <div>
+                  <h3 className="font-black text-base text-white flex items-center gap-2">
+                    <span className="text-yellow-400">WIN10K</span> MINES
+                  </h3>
+                  <span className="text-[11px] text-cyan-300">Asistente & Casino</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-[#142c5b] text-slate-300 hover:text-white flex items-center justify-center font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* VIP Auth Card */}
+              {user ? (
+                <div className="bg-[#0e244f] p-3 rounded-2xl border border-cyan-500/40 text-xs">
+                  <div className="flex items-center gap-2 text-cyan-200 font-bold mb-1">
+                    <UserVipIcon3D className="w-4 h-4" />
+                    <span>Conectado</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 truncate font-mono">{user.email}</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    handleLoginClick();
+                  }}
+                  className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 font-bold text-xs text-white shadow-lg flex items-center justify-center gap-2 active:scale-95 transition"
+                >
+                  <UserVipIcon3D className="w-4 h-4" />
+                  <span>Conectar Google Auth VIP</span>
+                </button>
+              )}
+
+              {/* Navigation Options */}
+              <div className="space-y-1.5 pt-2">
+                {[
+                  { id: 'game', label: '🎮 Juego Mines WIN10K (Principal)' },
+                  { id: 'analyzer', label: '📷 Escáner Visión con IA' },
+                  { id: 'probability', label: '📊 Probabilidad Matemática' },
+                  { id: 'heatmaps', label: '🗺️ Mapas de Calor Reales' },
+                  { id: 'history', label: '📜 Historial de Partidas' },
+                  { id: 'win10k', label: '🛡️ Auditoría Provably Fair' },
+                  { id: 'dashboard', label: '📈 Panel General / Métricas' },
+                  { id: 'settings', label: '⚙️ Ajustes del Asistente' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      soundFX.playTileClick();
+                      setCurrentTab(item.id);
+                      setIsMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                      currentTab === item.id
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black shadow-md'
+                        : 'text-slate-200 hover:bg-[#142c5b]'
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                    <span className="text-[10px] opacity-60">›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-[#1b356b] pt-4 text-center">
+              <span className="text-[10px] text-slate-400">MINES AI · Réplica Exacta WIN10K</span>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Main View Container */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full pb-28 lg:pb-12 relative z-20">
-        {currentTab === 'dashboard' && (
-          <DashboardView
-            games={games}
-            trainingSamples={trainingSamples}
-            onNavigate={(tab) => setCurrentTab(tab)}
-            userEmail={user?.email}
-          />
-        )}
-
-        {currentTab === 'analyzer' && (
-          <AnalyzerView
-            onGameSaved={(gameId) => {
-              setCurrentTab('history');
-            }}
-            initialMinesCount={3}
-            games={games}
-            onLoginClick={handleLoginClick}
-          />
-        )}
-
-        {currentTab === 'probability' && (
-          <ProbabilityView games={games} initialMinesCount={3} />
-        )}
-
-        {currentTab === 'heatmaps' && (
-          <HeatmapsView
-            games={games}
-            trainingSamples={trainingSamples}
-            recognitionThreshold={settings?.recognitionThreshold ?? 0.7}
-          />
-        )}
-
-        {currentTab === 'history' && <HistoryView games={games} />}
-
-        {currentTab === 'validation' && (
-          <ValidationView
-            samples={trainingSamples}
-            threshold={settings?.recognitionThreshold ?? 0.7}
-          />
-        )}
-
-        {currentTab === 'win10k' && <Win10kAuditView />}
-
-        {currentTab === 'settings' && (
-          <SettingsView
-            settings={settings}
-            onSettingsUpdated={(newSettings) => setSettings(newSettings)}
-            userEmail={user?.email}
-            onLoginClick={handleLoginClick}
-          />
-        )}
-      </main>
 
       {/* Google Authentication Modal with Live State Feedback */}
       <GoogleAuthModal

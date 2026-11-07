@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
 import { CellData, CellState } from '../types';
-import { Gem3D, Mine3D, Chest3D, TileClosed3D, TileUnknown3D } from './Icons3D';
+import {
+  Gem3D,
+  Mine3D,
+  Chest3D,
+  TileClosed3D,
+  TileUnknown3D,
+  StarCoin3D,
+  Win10kBomb3D,
+  Win10kChest3D,
+  Win10kClosedTile
+} from './Icons3D';
 import { soundFX } from '../utils/soundEffects';
 
 interface Board5x5Props {
@@ -252,13 +262,13 @@ export const Board5x5: React.FC<Board5x5Props> = ({
                   /* 3D Visual Rendering by State */
                   <div className="flex items-center justify-center pointer-events-none">
                     {cell.state === 'SEGURA' && (
-                      <Gem3D className={`${iconSizes[size]} drop-shadow-[0_4px_8px_rgba(0,0,0,0.7)]`} />
+                      <StarCoin3D className={`${iconSizes[size]} drop-shadow-[0_4px_8px_rgba(0,0,0,0.7)]`} />
                     )}
                     {cell.state === 'MINA' && (
-                      <Mine3D className={`${iconSizes[size]} drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)]`} />
+                      <Win10kBomb3D className={`${iconSizes[size]} drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)]`} />
                     )}
                     {cell.state === 'COFRE' && (
-                      <Chest3D className={`${iconSizes[size]} drop-shadow-[0_4px_8px_rgba(0,0,0,0.7)]`} />
+                      <Win10kChest3D className={`${iconSizes[size]} drop-shadow-[0_4px_8px_rgba(0,0,0,0.7)]`} />
                     )}
                     {cell.state === 'DESCONOCIDA' && (
                       <TileUnknown3D className={`${iconSizes[size]} opacity-90`} />
@@ -274,7 +284,7 @@ export const Board5x5: React.FC<Board5x5Props> = ({
                           </span>
                         </div>
                       ) : (
-                        <TileClosed3D className={`${iconSizes[size]} opacity-70 group-hover:opacity-100`} />
+                        <Win10kClosedTile className={`${iconSizes[size]} opacity-90 group-hover:opacity-100`} />
                       )
                     )}
                   </div>
